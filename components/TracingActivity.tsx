@@ -10,7 +10,9 @@ import * as Haptics from 'expo-haptics';
 interface TracingActivityProps {
   items: TracingItem[];
   difficulty: Difficulty;
+  initialIndex?: number;
   onComplete: (score: number) => void;
+  onLevelComplete?: (levelIndex: number) => void;
   onExit: () => void;
 }
 
@@ -23,7 +25,6 @@ interface Point {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CANVAS_PADDING = 32;
 const CANVAS_SIZE = Math.min(SCREEN_WIDTH - CANVAS_PADDING, 400); 
-const SCALE = CANVAS_SIZE / 300; 
 
 // --- Geometry Helpers ---
 
@@ -32,7 +33,6 @@ const cubicBezier = (t: number, p0: number, p1: number, p2: number, p3: number) 
 
 const sampleBezier = (p0: {x:number, y:number}, p1: {x:number, y:number}, p2: {x:number, y:number}, p3: {x:number, y:number}) => {
   const pts = [];
-  // High segment count for smooth hit detection on curves
   const segments = 60; 
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
@@ -55,7 +55,6 @@ const generateCheckpoints = (d: string): Point[] => {
     const nextNum = () => parseFloat(commands[idx++]);
     const addPt = (x: number, y: number) => points.push({ x, y, visited: false });
 
-    // Ensure we start at 0,0 if not specified (though M usually leads)
     if (commands[0] && commands[0].toUpperCase() !== 'M') {
         addPt(0,0);
     }
@@ -63,7 +62,6 @@ const generateCheckpoints = (d: string): Point[] => {
     while (idx < commands.length) {
         const cmd = commands[idx++];
         
-        // Skip pure numbers if not consumed by a command (prevents infinite loop/bad parse)
         if (!isNaN(parseFloat(cmd))) { 
             continue; 
         } 
@@ -111,7 +109,6 @@ const generateCheckpoints = (d: string): Point[] => {
             case 'Z':
                 break;
             default:
-                // Consume arguments of unknown commands to avoid getting stuck
                 while(idx < commands.length && !isNaN(parseFloat(commands[idx]))) idx++;
                 break;
         }
@@ -119,8 +116,9 @@ const generateCheckpoints = (d: string): Point[] => {
     return points;
 };
 
-export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficulty, onComplete, onExit }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficulty, initialIndex = 0, onComplete, onLevelComplete, onExit }) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [unlockedLevel, setUnlockedLevel] = useState(initialIndex); 
   const [userPath, setUserPath] = useState<string>('');
   const [result, setResult] = useState<{score: number, errorRate: number, progress: number, errors: number} | null>(null);
   const [isOutOfBounds, setIsOutOfBounds] = useState(false);
@@ -130,15 +128,20 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
   const difficultyConfig = currentItem.difficultyConfig?.[difficulty];
   const activePathData = difficultyConfig?.pathData || currentItem.pathData;
   const activeLabel = difficultyConfig?.label || currentItem.label;
+  const activeViewBox = difficultyConfig?.viewBox || currentItem.viewBox || '0 0 300 300';
   const settings = DIFFICULTY_SETTINGS[difficulty];
 
-  // Refs
+  const vbParts = activeViewBox.split(' ').map(parseFloat);
+  const vbWidth = vbParts[2];
+  const vbHeight = vbParts[3];
+  const scaleX = vbWidth / CANVAS_SIZE;
+  const scaleY = vbHeight / CANVAS_SIZE;
+
   const checkpointsRef = useRef<Point[]>([]);
   const statsRef = useRef({ total: 0, valid: 0, errors: 0 });
   const lastHapticRef = useRef(0);
   const lastPointRef = useRef<{x: number, y: number} | null>(null);
   
-  // Animation Ref
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -169,7 +172,6 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
 
   const triggerErrorFeedback = () => {
       const now = Date.now();
-      // Throttle heavy feedback
       if (now - lastHapticRef.current > 300) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           triggerShake();
@@ -178,11 +180,12 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
   };
 
   const checkIsInside = (x: number, y: number) => {
-    const svgX = x / SCALE;
-    const svgY = y / SCALE;
-    const toleranceRadius = (settings.strokeWidth / 2) + settings.tolerance;
-    // CRITICAL FIX: Visit radius same as tolerance. If you are safe, you are scoring.
-    const visitRadius = toleranceRadius; 
+    const svgX = x * scaleX;
+    const svgY = y * scaleY;
+    
+    const toleranceBase = (settings.strokeWidth / 2) + settings.tolerance;
+    const toleranceScaled = toleranceBase * (vbWidth / 300);
+    const visitRadius = toleranceScaled; 
     
     let isInside = false;
     let distanceToAny = Number.MAX_VALUE;
@@ -190,14 +193,14 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
     for (const cp of checkpointsRef.current) {
         const d = Math.hypot(cp.x - svgX, cp.y - svgY);
         distanceToAny = Math.min(distanceToAny, d);
-        if (d < toleranceRadius) {
+        if (d < toleranceScaled) {
             isInside = true;
             if (!cp.visited && d < visitRadius) {
                 cp.visited = true;
             }
         }
     }
-    return { isInside, distanceToAny, toleranceRadius };
+    return { isInside, distanceToAny, toleranceRadius: toleranceScaled };
   };
 
   const handleTouch = (x: number, y: number): boolean => {
@@ -210,7 +213,6 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
       if (isOutOfBounds) setIsOutOfBounds(false);
     } else {
        statsRef.current.errors++;
-       
        if (!isOutOfBounds) {
            setIsOutOfBounds(true);
            triggerErrorFeedback();
@@ -219,18 +221,14 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
        }
     }
 
-    // Live Stats Update
     if (statsRef.current.total % 3 === 0) {
         const visited = checkpointsRef.current.filter(c => c.visited).length;
         const totalPoints = checkpointsRef.current.length || 1;
         const rawProgress = visited / totalPoints;
-        
-        // Progress display slightly boosted for encouragement
         const progress = Math.min(100, Math.round(rawProgress * 100));
         const errorRate = statsRef.current.total > 0 
             ? Math.round((statsRef.current.errors / statsRef.current.total) * 100) 
             : 0;
-        
         setLiveStats({ errorRate, errors: statsRef.current.errors, progress });
     }
 
@@ -242,28 +240,25 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
+        const svgX = locationX * scaleX;
+        const svgY = locationY * scaleY;
+
         const { isInside, toleranceRadius } = checkIsInside(locationX, locationY);
         
         if (isInside) {
             setIsOutOfBounds(false);
-            
-            // Allow lifting: resume if near last point. Scale distance by tolerance to match difficulty.
-            const resumeDist = toleranceRadius * 2 * SCALE;
-            const dist = lastPointRef.current ? Math.hypot(locationX - lastPointRef.current.x, locationY - lastPointRef.current.y) : Infinity;
+            const resumeDist = toleranceRadius * 2; 
+            const dist = lastPointRef.current ? Math.hypot(svgX - lastPointRef.current.x, svgY - lastPointRef.current.y) : Infinity;
             
             if (lastPointRef.current && dist < resumeDist) {
-                 // Close enough to consider a continuation
                  setUserPath(prev => {
-                     // Safety check: Path must not start with L
-                     if (!prev) return `M ${locationX} ${locationY}`;
-                     return `${prev} L ${locationX} ${locationY}`;
+                     if (!prev) return `M ${svgX} ${svgY}`;
+                     return `${prev} L ${svgX} ${svgY}`;
                  });
             } else {
-                 // Start a new segment
-                 setUserPath(prev => prev ? `${prev} M ${locationX} ${locationY}` : `M ${locationX} ${locationY}`);
+                 setUserPath(prev => prev ? `${prev} M ${svgX} ${svgY}` : `M ${svgX} ${svgY}`);
             }
-            
-            lastPointRef.current = { x: locationX, y: locationY };
+            lastPointRef.current = { x: svgX, y: svgY };
             handleTouch(locationX, locationY);
         } else {
             setIsOutOfBounds(true);
@@ -272,11 +267,13 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
       },
       onPanResponderMove: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
+        const svgX = locationX * scaleX;
+        const svgY = locationY * scaleY;
+
         const isInside = handleTouch(locationX, locationY);
-        // Only allow drawing updates if inside. 
         if (isInside) {
-            setUserPath(prev => `${prev} L ${locationX} ${locationY}`);
-            lastPointRef.current = { x: locationX, y: locationY };
+            setUserPath(prev => `${prev} L ${svgX} ${svgY}`);
+            lastPointRef.current = { x: svgX, y: svgY };
         }
       },
       onPanResponderRelease: () => {
@@ -286,28 +283,22 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
   ).current;
 
   const calculateScore = () => {
-    // Recalculate precisely based on visited checkpoints
     const visited = checkpointsRef.current.filter(c => c.visited).length;
     const totalPoints = checkpointsRef.current.length || 1;
     const rawProgress = visited / totalPoints;
     
-    // SCORING UPDATE: 
-    // Increased threshold to 96% to require virtually complete filling of the element.
     let finalScore = 0;
     if (rawProgress >= 0.96) {
         finalScore = 100;
     } else {
-        // Map remaining range linearly
         finalScore = Math.round((rawProgress / 0.96) * 100);
     }
 
-    // Only deduct for excessive errors if the score isn't perfect
     if (finalScore < 100 && liveStats.errorRate > 20) {
         finalScore -= Math.round((liveStats.errorRate - 20) / 2);
     }
     finalScore = Math.max(0, finalScore);
 
-    // Show result if they made significant progress
     if (finalScore > 50 || (statsRef.current.total > 10 && finalScore > 20)) {
         setResult({
             score: finalScore,
@@ -315,6 +306,14 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
             progress: Math.round(rawProgress * 100),
             errors: statsRef.current.errors
         });
+        
+        if (finalScore > 60 && currentIndex >= unlockedLevel) {
+            const nextLevel = Math.max(unlockedLevel, currentIndex + 1);
+            setUnlockedLevel(nextLevel);
+            if (onLevelComplete) {
+                onLevelComplete(nextLevel - 1); // Save current level as complete (index is 0-based)
+            }
+        }
     }
   };
 
@@ -330,11 +329,13 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
     }
   };
 
+  const baseStroke = settings.strokeWidth * (vbWidth / 300);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft color="#4B5563" size={24} />
+          <ChevronLeft stroke="#4B5563" size={24} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -342,41 +343,43 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
           <Text style={styles.taskTitle}>{currentIndex + 1}. {activeLabel}</Text>
         </View>
         <View style={styles.counterBadge}>
-            <Text style={styles.counterText}>{currentIndex + 1}/40</Text>
+            <Text style={styles.counterText}>{currentIndex + 1}/{items.length}</Text>
         </View>
       </View>
 
       <View style={styles.statsRow}>
          <View style={styles.statItem}>
-            <AlertCircle size={14} color={liveStats.errorRate > 20 ? 'red' : 'green'} />
+            <AlertCircle size={14} stroke={liveStats.errorRate > 20 ? 'red' : 'green'} />
             <Text style={styles.statText}>Error Rate: {liveStats.errorRate}%</Text>
          </View>
          <View style={styles.statItem}>
-            <ScanLine size={14} color="blue" />
+            <ScanLine size={14} stroke="blue" />
             <Text style={styles.statText}>Progress: {Math.round((checkpointsRef.current.filter(c => c.visited).length / (checkpointsRef.current.length || 1)) * 100)}%</Text>
          </View>
       </View>
 
       <View style={styles.mainArea}>
           
-          {/* Navigation Buttons */}
           <TouchableOpacity 
             onPress={prevItem} 
             disabled={currentIndex === 0}
             style={[styles.navButton, styles.navLeft, currentIndex === 0 && {opacity: 0.3}]}
           >
-            <ChevronLeft size={32} color="#000" />
+            <ChevronLeft size={32} stroke="#000" />
           </TouchableOpacity>
           
           <TouchableOpacity 
             onPress={nextItem} 
-            disabled={currentIndex === items.length - 1}
-            style={[styles.navButton, styles.navRight, currentIndex === items.length - 1 && {opacity: 0.3}]}
+            disabled={currentIndex === items.length - 1 || currentIndex >= unlockedLevel}
+            style={[
+              styles.navButton, 
+              styles.navRight, 
+              (currentIndex === items.length - 1 || currentIndex >= unlockedLevel) && {opacity: 0.3, backgroundColor: '#F3F4F6'}
+            ]}
           >
-            <ChevronRight size={32} color="#000" />
+            <ChevronRight size={32} stroke={currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} />
           </TouchableOpacity>
 
-          {/* Canvas */}
           <Animated.View 
             style={[
                 styles.canvasContainer, 
@@ -390,7 +393,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
           >
             {isOutOfBounds && (
                 <View style={styles.offTrackWarning}>
-                    <XCircle size={24} color="#FFF" style={{marginRight: 8}} />
+                    <XCircle size={24} stroke="#FFF" style={{marginRight: 8}} />
                     <Text style={styles.offTrackText}>OFF TRACK</Text>
                 </View>
             )}
@@ -399,44 +402,38 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
                 style={{ width: CANVAS_SIZE, height: CANVAS_SIZE }}
                 {...panResponder.panHandlers}
             >
-                <Svg height={CANVAS_SIZE} width={CANVAS_SIZE} viewBox={`0 0 300 300`}>
-                    {/* Background Tolerance Zone (Light) */}
+                <Svg height={CANVAS_SIZE} width={CANVAS_SIZE} viewBox={activeViewBox}>
                     <Path
                         d={activePathData}
                         stroke="#F1F5F9"
-                        strokeWidth={settings.strokeWidth + (settings.tolerance * 2)} 
+                        strokeWidth={baseStroke + (settings.tolerance * (vbWidth/300) * 2)} 
                         fill="none"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         opacity={0.3}
                     />
-                    {/* Visible Path Guide */}
                     <Path
                         d={activePathData}
                         stroke="#CBD5E1"
-                        strokeWidth={settings.strokeWidth}
+                        strokeWidth={baseStroke}
                         fill="none"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                     />
-                    {/* Dashed Center Line */}
                     <Path
                         d={activePathData}
                         stroke="#94A3B8"
-                        strokeWidth={2}
+                        strokeWidth={2 * (vbWidth / 300)}
                         fill="none"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        strokeDasharray="12, 12"
+                        strokeDasharray={`${12 * (vbWidth/300)}, ${12 * (vbWidth/300)}`}
                     />
-                </Svg>
-
-                <Svg style={StyleSheet.absoluteFill} height={CANVAS_SIZE} width={CANVAS_SIZE}>
+                    
                     <Path
                         d={userPath}
                         stroke="rgba(74, 144, 226, 0.7)"
-                        // Increased stroke width slightly to enhance "filling" feel
-                        strokeWidth={settings.strokeWidth * SCALE * 0.9}
+                        strokeWidth={baseStroke * 0.9}
                         fill="none"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -469,7 +466,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
                                 style={styles.nextButton}
                             >
                                 <Text style={styles.buttonTextWhite}>Next Level</Text>
-                                <ArrowRight size={20} color="#FFF" />
+                                <ArrowRight size={20} stroke="#FFF" />
                             </TouchableOpacity>
                         ) : (
                             <TouchableOpacity 
@@ -487,7 +484,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
 
       <View style={styles.footerControls}>
         <TouchableOpacity onPress={resetState} style={styles.clearButton}>
-            <Eraser color="#dc2626" size={20} />
+            <Eraser stroke="#dc2626" size={20} />
             <Text style={styles.clearButtonText}>Clear Board</Text>
         </TouchableOpacity>
       </View>
@@ -610,7 +607,7 @@ const styles = StyleSheet.create({
     borderColor: '#E6F3F7',
   },
   canvasError: {
-    borderColor: '#EF4444', // Red border when error
+    borderColor: '#EF4444', 
   },
   offTrackWarning: {
     position: 'absolute',

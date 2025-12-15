@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { UserProfile, Difficulty } from '../types';
-import { Trophy, Star, Lock, CheckCircle, BookOpen, PenTool, Type, X } from 'lucide-react-native';
+import { Trophy, Star, Lock, CheckCircle, BookOpen, PenTool, Type, X, Zap } from 'lucide-react-native';
 
 interface JourneyProps {
   user: UserProfile;
@@ -14,13 +14,13 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
   const currentLevelIndex = levels.indexOf(user.assignedDifficulty);
 
   // Helper to calculate score purely based on Activity History (Practice)
-  // We do NOT combine Assessment scores here, per requirements.
-  const calculateSkillMastery = (skillType: 'Reading' | 'Writing' | 'Spelling') => {
+  const calculateSkillMastery = (skillType: 'Reading' | 'Writing' | 'Spelling' | 'Memory') => {
       const history = user.progressHistory || [];
       const relevant = history.filter(h => {
           if (skillType === 'Reading') return h.activityType === 'Reading';
           if (skillType === 'Writing') return h.activityType === 'Tracing'; // Tracing builds writing
           if (skillType === 'Spelling') return h.activityType === 'Spelling';
+          if (skillType === 'Memory') return h.activityType === 'Memory';
           return false;
       });
 
@@ -34,13 +34,14 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
   const readingScore = calculateSkillMastery('Reading');
   const writingScore = calculateSkillMastery('Writing');
   const spellingScore = calculateSkillMastery('Spelling');
+  const memoryScore = calculateSkillMastery('Memory');
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
         <Text style={styles.title}>Learning Journey</Text>
         <TouchableOpacity onPress={onExit} style={styles.closeButton}>
-            <X size={24} color="#6B7280" />
+            <X size={24} stroke="#6B7280" />
         </TouchableOpacity>
       </View>
 
@@ -52,7 +53,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Reading */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <BookOpen size={18} color="#3B82F6" />
+                    <BookOpen size={18} stroke="#3B82F6" />
                     <Text style={styles.skillLabel}>Reading</Text>
                  </View>
                  <View style={styles.progressBarBg}>
@@ -64,7 +65,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Writing */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <PenTool size={18} color="#22C55E" />
+                    <PenTool size={18} stroke="#22C55E" />
                     <Text style={styles.skillLabel}>Writing</Text>
                  </View>
                  <View style={styles.progressBarBg}>
@@ -76,13 +77,25 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Spelling */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <Type size={18} color="#A855F7" />
+                    <Type size={18} stroke="#A855F7" />
                     <Text style={styles.skillLabel}>Spelling</Text>
                  </View>
                  <View style={styles.progressBarBg}>
                      <View style={[styles.progressBarFill, {backgroundColor: '#A855F7', width: `${spellingScore}%`}]}></View>
                  </View>
                  <Text style={styles.scoreText}>{spellingScore}%</Text>
+             </View>
+
+             {/* Memory */}
+             <View style={styles.skillRow}>
+                 <View style={styles.labelGroup}>
+                    <Zap size={18} stroke="#F59E0B" />
+                    <Text style={styles.skillLabel}>Memory</Text>
+                 </View>
+                 <View style={styles.progressBarBg}>
+                     <View style={[styles.progressBarFill, {backgroundColor: '#F59E0B', width: `${memoryScore}%`}]}></View>
+                 </View>
+                 <Text style={styles.scoreText}>{memoryScore}%</Text>
              </View>
         </View>
       </View>
@@ -108,7 +121,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
                         styles.nodeCircle, 
                         isCurrent ? {borderColor: '#4A90E2'} : isCompleted ? {borderColor: '#10B981'} : {borderColor: '#D1D5DB'}
                     ]}>
-                        {isCompleted ? <CheckCircle size={16} color="#10B981" /> : isCurrent ? <Star size={16} fill="#4A90E2" color="#4A90E2" /> : <Lock size={14} color="#D1D5DB" />}
+                        {isCompleted ? <CheckCircle size={16} stroke="#10B981" /> : isCurrent ? <Star size={16} stroke="#4A90E2" {...({fill: "#4A90E2"} as any)} /> : <Lock size={14} stroke="#D1D5DB" />}
                     </View>
 
                     <View style={styles.levelContent}>

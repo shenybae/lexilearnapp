@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Dimensions, StyleSheet } from 'react-native';
 import { Svg, Path, Circle, Line, G, Text as SvgText } from 'react-native-svg';
 import { ProgressRecord, Difficulty, AssessmentScores } from '../types';
-import { Edit2, Save, Settings, Shield, BookOpen, PenTool, Type, LogOut } from 'lucide-react-native';
+import { Edit2, Save, Settings, Shield, BookOpen, PenTool, Type, LogOut, Zap } from 'lucide-react-native';
 
 interface DashboardProps {
   progressData: ProgressRecord[];
@@ -48,7 +48,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
 
   const pathData = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
 
-  // Focus Area Logic derived purely from assessment scores (Initial Baseline)
+  // Focus Area Logic
   let readingAvg = 0, writingAvg = 0, spellingAvg = 0;
   let focusAreas = [];
 
@@ -74,6 +74,12 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
     ];
   }
 
+  // Determine Memory Score from Activity History (since not in initial assessment)
+  const memoryRecords = progressData.filter(p => p.activityType === 'Memory');
+  const memoryAvg = memoryRecords.length > 0 
+      ? Math.round(memoryRecords.reduce((acc, curr) => acc + curr.score, 0) / memoryRecords.length) 
+      : 0;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
@@ -87,19 +93,19 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
                       autoFocus
                     />
                     <TouchableOpacity onPress={handleSaveName} style={styles.saveButton}>
-                        <Save size={20} color="#15803D" />
+                        <Save size={20} stroke="#15803D" />
                     </TouchableOpacity>
                 </View>
             ) : (
                 <TouchableOpacity onPress={() => setIsEditingName(true)} style={styles.editNameRow}>
                     <Text style={styles.headerTitle}>{childName}'s Progress</Text>
-                    <Edit2 size={18} color="#9CA3AF" />
+                    <Edit2 size={18} stroke="#9CA3AF" />
                 </TouchableOpacity>
             )}
         </View>
         
         <TouchableOpacity onPress={onExit} style={styles.exitButton}>
-          <LogOut size={20} color="#374151" />
+          <LogOut size={20} stroke="#374151" />
         </TouchableOpacity>
       </View>
 
@@ -119,7 +125,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
         </View>
         <View style={[styles.summaryCard, {borderLeftColor: '#F97316'}]}>
           <View style={styles.row}>
-             <Settings size={12} color="#6B7280" />
+             <Settings size={12} stroke="#6B7280" />
              <Text style={styles.summaryLabel}>Level</Text>
           </View>
           <Text style={[styles.summaryValue, {fontSize: 18}]}>{currentDifficulty}</Text>
@@ -152,7 +158,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
           </View>
       </View>
 
-      {/* Priorities (New Section) */}
+      {/* Priorities */}
       <View style={styles.prioritiesCard}>
          <Text style={styles.cardTitle}>Focus Areas (From Assessment)</Text>
          <View style={styles.priorityRow}>
@@ -176,13 +182,13 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
 
       {/* Breakdown */}
       <View style={styles.breakdownCard}>
-         <Text style={styles.cardTitle}>Initial Assessment Results</Text>
-         <Text style={styles.cardSubtitle}>Baseline scores captured during onboarding.</Text>
+         <Text style={styles.cardTitle}>Initial Assessment Results & Activity Avg</Text>
+         <Text style={styles.cardSubtitle}>Baseline scores captured during onboarding + recent activity.</Text>
          <View style={{gap: 24}}>
             <View>
                <View style={styles.breakdownHeader}>
                    <View style={styles.row}>
-                       <BookOpen size={18} color="#4B5563" />
+                       <BookOpen size={18} stroke="#4B5563" />
                        <Text style={styles.breakdownLabel}>Reading</Text>
                    </View>
                    <Text style={[styles.breakdownScore, {color: '#4A90E2'}]}>{readingAvg}%</Text>
@@ -195,7 +201,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
             <View>
                <View style={styles.breakdownHeader}>
                    <View style={styles.row}>
-                       <PenTool size={18} color="#4B5563" />
+                       <PenTool size={18} stroke="#4B5563" />
                        <Text style={styles.breakdownLabel}>Writing</Text>
                    </View>
                    <Text style={[styles.breakdownScore, {color: '#10B981'}]}>{writingAvg}%</Text>
@@ -208,7 +214,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
             <View>
                <View style={styles.breakdownHeader}>
                    <View style={styles.row}>
-                       <Type size={18} color="#4B5563" />
+                       <Type size={18} stroke="#4B5563" />
                        <Text style={styles.breakdownLabel}>Spelling</Text>
                    </View>
                    <Text style={[styles.breakdownScore, {color: '#8B5CF6'}]}>{spellingAvg}%</Text>
@@ -217,11 +223,25 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
                    <View style={[styles.progressBarFill, {backgroundColor: '#8B5CF6', width: `${spellingAvg}%`}]} />
                </View>
             </View>
+
+            {/* Memory Added */}
+            <View>
+               <View style={styles.breakdownHeader}>
+                   <View style={styles.row}>
+                       <Zap size={18} stroke="#4B5563" />
+                       <Text style={styles.breakdownLabel}>Memory (Activity Avg)</Text>
+                   </View>
+                   <Text style={[styles.breakdownScore, {color: '#F59E0B'}]}>{memoryAvg}%</Text>
+               </View>
+               <View style={styles.progressBarBg}>
+                   <View style={[styles.progressBarFill, {backgroundColor: '#F59E0B', width: `${memoryAvg}%`}]} />
+               </View>
+            </View>
          </View>
       </View>
       
       <View style={styles.insightsCard}>
-        <Shield size={24} color="#2563EB" />
+        <Shield size={24} stroke="#2563EB" />
         <View style={{flex: 1}}>
             <Text style={styles.insightsTitle}>AI Insights for {childName}</Text>
             <Text style={styles.insightsText}>

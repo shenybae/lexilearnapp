@@ -7,12 +7,14 @@ import { ChevronLeft, Delete, Eye, CheckCircle, AlertCircle, Play } from 'lucide
 interface MemoryActivityProps {
   items: MemoryItem[];
   difficulty: Difficulty;
+  initialIndex?: number;
   onComplete: (score: number) => void;
+  onLevelComplete?: (levelIndex: number) => void;
   onExit: () => void;
 }
 
-export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficulty, onComplete, onExit }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficulty, onComplete, onLevelComplete, onExit, initialIndex = 0 }) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [phase, setPhase] = useState<'IDLE' | 'SHOW' | 'INPUT' | 'RESULT'>('IDLE');
   const [inputValue, setInputValue] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
@@ -80,6 +82,9 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
   const nextLevel = () => {
     if (resultMessage === 'Correct') {
         onComplete(100); 
+        if (onLevelComplete) {
+            onLevelComplete(currentIndex); // Save current level (0-based) as completed
+        }
     }
     
     if (currentIndex < items.length - 1) {
@@ -113,7 +118,7 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
              <Text style={styles.numpadText}>0</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => handleKeypadPress('DEL')} style={[styles.numpadButton, styles.numpadDel]}>
-             <Delete size={28} color="#374151" />
+             <Delete size={28} stroke="#374151" />
           </TouchableOpacity>
           
           <TouchableOpacity onPress={() => handleKeypadPress('SUBMIT')} style={styles.submitButton}>
@@ -151,7 +156,7 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
 
               <View style={styles.keyboardActions}>
                    <TouchableOpacity onPress={() => handleKeypadPress('DEL')} style={styles.keyDelButton}>
-                      <Delete size={20} color="#DC2626" />
+                      <Delete size={20} stroke="#DC2626" />
                       <Text style={styles.keyDelText}>DEL</Text>
                    </TouchableOpacity>
                    <TouchableOpacity onPress={() => handleKeypadPress('SUBMIT')} style={styles.keySubmitButton}>
@@ -167,7 +172,7 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
        {/* Header */}
        <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft size={24} color="#4B5563" />
+          <ChevronLeft size={24} stroke="#4B5563" />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -194,14 +199,14 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
             {phase === 'IDLE' && (
                 <View style={styles.centerCol}>
                     <View style={styles.iconCircle}>
-                        <Eye size={48} color="#4A90E2" />
+                        <Eye size={48} stroke="#4A90E2" />
                     </View>
                     <Text style={styles.readyTitle}>Ready?</Text>
                     <Text style={styles.readyDesc}>
                         Memorize the sequence shown on screen. It will disappear quickly!
                     </Text>
                     <TouchableOpacity onPress={startLevel} style={styles.startButton}>
-                        <Play size={24} fill="#FFF" color="#FFF" />
+                        <Play size={24} stroke="#FFF" {...({fill: "#FFF"} as any)} />
                         <Text style={styles.startButtonText}>Start Level</Text>
                     </TouchableOpacity>
                 </View>
@@ -235,7 +240,7 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
                 <View style={styles.centerCol}>
                      {resultMessage === 'Correct' ? (
                          <View style={styles.centerCol}>
-                            <CheckCircle size={80} color="#16A34A" style={{marginBottom: 16}} />
+                            <CheckCircle size={80} stroke="#16A34A" style={{marginBottom: 16}} />
                             <Text style={styles.correctTitle}>Correct!</Text>
                             <Text style={styles.resultDesc}>You have a great memory.</Text>
                             <TouchableOpacity onPress={nextLevel} style={styles.nextButton}>
@@ -244,7 +249,7 @@ export const MemoryActivity: React.FC<MemoryActivityProps> = ({ items, difficult
                          </View>
                      ) : (
                         <View style={styles.centerCol}>
-                            <AlertCircle size={80} color="#EF4444" style={{marginBottom: 16}} />
+                            <AlertCircle size={80} stroke="#EF4444" style={{marginBottom: 16}} />
                             <Text style={styles.incorrectTitle}>Incorrect</Text>
                             <Text style={styles.resultDesc}>The sequence was:</Text>
                             <Text style={styles.correctSequence}>{currentItem.sequence}</Text>

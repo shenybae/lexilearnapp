@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform, Alert, ScrollView } from 'react-native';
 import { ReadingItem, Difficulty } from '../types';
 import { Mic, Volume2, Square, ArrowRight, ChevronLeft, ChevronRight, MessageSquare, Star, ThumbsUp, AlertCircle } from 'lucide-react-native';
 import { checkPronunciation } from '../services/gemini';
@@ -10,12 +10,15 @@ import * as Speech from 'expo-speech';
 interface ReadingActivityProps {
   items: ReadingItem[];
   difficulty: Difficulty;
+  initialIndex?: number;
   onComplete: (score: number) => void;
+  onLevelComplete?: (levelIndex: number) => void;
   onExit: () => void;
 }
 
-export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onComplete, onExit, difficulty }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onComplete, onLevelComplete, onExit, difficulty, initialIndex = 0 }) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [unlockedLevel, setUnlockedLevel] = useState(initialIndex); 
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -26,18 +29,14 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
   const activeWord = difficultyConfig?.word || currentItem.word;
   const activeSentence = difficultyConfig?.sentence || currentItem.sentence;
 
-  // Helper for silent cleanup
   const safeCleanupRecording = async (rec: Audio.Recording | null) => {
       if (!rec) return;
       try {
-          // stopAndUnloadAsync handles the entire cleanup process.
           await rec.stopAndUnloadAsync();
       } catch (err) {
-          // Completely swallow errors during cleanup to prevent "no valid audio data" logs
       }
   };
 
-  // Cleanup on unmount only
   useEffect(() => {
     return () => {
       if (recordingRef.current) {
@@ -58,21 +57,18 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
   const startRecording = async () => {
     setFeedback(null);
     try {
-      // 1. Cleanup existing
       if (recordingRef.current) {
           await safeCleanupRecording(recordingRef.current);
           recordingRef.current = null;
           setRecording(null);
       }
 
-      // 2. Permission
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
         Alert.alert("Permission", "Microphone access is required.");
         return;
       }
 
-      // 3. Audio Mode
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -81,7 +77,6 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
         playThroughEarpieceAndroid: false,
       });
 
-      // 4. Create and Start (Explicit)
       const newRecording = new Audio.Recording();
       await newRecording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await newRecording.startAsync();
@@ -105,18 +100,15 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
     try {
       const status = await recordingRef.current.getStatusAsync();
       
-      // Safety check for duration (1s minimum to avoid empty files)
       if (status.durationMillis < 1000) {
           Alert.alert("Too Short", "Please press and speak for at least a second.");
           setIsProcessing(false);
-          // Do NOT stop here, just return so user can keep speaking
           return;
       }
 
       await recordingRef.current.stopAndUnloadAsync();
       uri = recordingRef.current.getURI();
     } catch (e: any) {
-      // Suppress "no valid audio data" log
       if (e.message && !e.message.includes("no valid audio data")) {
           console.log('Error stopping recording:', e);
       } else {
@@ -129,7 +121,6 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
       return;
     }
     
-    // Clear refs
     recordingRef.current = null;
     setRecording(null);
 
@@ -143,6 +134,14 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
             transcript: result.transcript
         });
         onComplete(result.score);
+        
+        if (result.score > 60 && currentIndex >= unlockedLevel) {
+            const nextLevel = Math.max(unlockedLevel, currentIndex + 1);
+            setUnlockedLevel(nextLevel);
+            if (onLevelComplete) {
+                onLevelComplete(nextLevel - 1);
+            }
+        }
     }
     setIsProcessing(false);
   };
@@ -162,10 +161,10 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
   };
 
   const getFeedbackStyles = (score: number) => {
-      if (score >= 90) return { bg: '#DCFCE7', border: '#86EFAC', text: '#166534', icon: <Star color="#16A34A" fill="#16A34A" size={32} /> };
-      if (score >= 70) return { bg: '#DBEAFE', border: '#93C5FD', text: '#1E40AF', icon: <ThumbsUp color="#2563EB" size={32} /> };
-      if (score >= 40) return { bg: '#FFEDD5', border: '#FDBA74', text: '#9A3412', icon: <AlertCircle color="#EA580C" size={32} /> };
-      return { bg: '#FEE2E2', border: '#FCA5A5', text: '#991B1B', icon: <AlertCircle color="#DC2626" size={32} /> };
+      if (score >= 90) return { bg: '#DCFCE7', border: '#86EFAC', text: '#166534', icon: <Star stroke="#16A34A" {...({fill: "#16A34A"} as any)} size={32} /> };
+      if (score >= 70) return { bg: '#DBEAFE', border: '#93C5FD', text: '#1E40AF', icon: <ThumbsUp stroke="#2563EB" size={32} /> };
+      if (score >= 40) return { bg: '#FFEDD5', border: '#FDBA74', text: '#9A3412', icon: <AlertCircle stroke="#EA580C" size={32} /> };
+      return { bg: '#FEE2E2', border: '#FCA5A5', text: '#991B1B', icon: <AlertCircle stroke="#DC2626" size={32} /> };
   };
 
   const styleConfig = feedback ? getFeedbackStyles(feedback.score) : null;
@@ -174,7 +173,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
     <View style={styles.container}>
        <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft color="#4B5563" size={24} />
+          <ChevronLeft stroke="#4B5563" size={24} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -191,107 +190,120 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
           disabled={currentIndex === 0}
           style={[styles.navButton, styles.navLeft, currentIndex === 0 && {opacity: 0.3}]}
         >
-          <ChevronLeft size={24} color="#000" />
+          <ChevronLeft size={24} stroke="#000" />
         </TouchableOpacity>
+        
         <TouchableOpacity 
           onPress={nextWord} 
-          disabled={currentIndex === items.length - 1}
-          style={[styles.navButton, styles.navRight, currentIndex === items.length - 1 && {opacity: 0.3}]}
+          disabled={currentIndex === items.length - 1 || currentIndex >= unlockedLevel}
+          style={[
+            styles.navButton, 
+            styles.navRight, 
+            (currentIndex === items.length - 1 || currentIndex >= unlockedLevel) && {opacity: 0.3, backgroundColor: '#F3F4F6'}
+          ]}
         >
-          <ChevronRight size={24} color="#000" />
+          <ChevronRight size={24} stroke={currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} />
         </TouchableOpacity>
 
-        <View style={styles.wordContainer}>
-          <Text style={styles.wordText}>{activeWord}</Text>
-          <View style={styles.sentenceBox}>
-             <Text style={styles.sentenceText}>{activeSentence}</Text>
-          </View>
-        </View>
-
-        <View style={styles.audioButtonsRow}>
-           <TouchableOpacity 
-            onPress={playWord}
-            style={[styles.audioButton, {backgroundColor: '#EFF6FF'}]}
-          >
-            <View style={[styles.iconCircle, {backgroundColor: '#3B82F6'}]}>
-              <Volume2 size={24} color="#FFF" />
-            </View>
-            <Text style={[styles.audioButtonText, {color: '#1D4ED8'}]}>Hear Word</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            onPress={playSentence}
-            style={[styles.audioButton, {backgroundColor: '#FAF5FF'}]}
-          >
-            <View style={[styles.iconCircle, {backgroundColor: '#A855F7'}]}>
-              <Volume2 size={24} color="#FFF" />
-            </View>
-            <Text style={[styles.audioButtonText, {color: '#7E22CE'}]}>Hear Sentence</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.actionContainer}>
-          {!recording ? (
-            <TouchableOpacity 
-              onPress={startRecording}
-              disabled={isProcessing}
-              style={[styles.recordButton, {backgroundColor: '#66BB6A'}]}
-            >
-              <Mic size={28} color="#FFF" />
-              <Text style={styles.recordButtonText}>{isProcessing ? 'Checking...' : 'Tap to Read'}</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity 
-              onPress={stopRecording}
-              style={[styles.recordButton, {backgroundColor: '#EF4444'}]}
-              disabled={isProcessing}
-            >
-              {isProcessing ? <ActivityIndicator color="#FFF" /> : <Square size={28} fill="#FFF" color="#FFF" />}
-              <Text style={styles.recordButtonText}>{isProcessing ? 'Processing...' : 'Stop Recording'}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {isProcessing && (
-           <View style={styles.loadingRow}>
-             <ActivityIndicator size="small" color="#4A90E2" />
-             <Text style={styles.loadingText}>Analyzing audio (this may take a moment)...</Text>
-           </View>
-        )}
-
-        {feedback && styleConfig && (
-          <View style={[styles.feedbackBox, {backgroundColor: styleConfig.bg, borderColor: styleConfig.border}]}>
-            <View style={styles.feedbackHeader}>
-              <View style={styles.feedbackRow}>
-                {styleConfig.icon}
-                <Text style={[styles.feedbackTitle, {color: styleConfig.text}]}>{feedback.text}</Text>
-              </View>
-              <View style={styles.scoreBadge}>
-                  <Text style={[styles.scoreText, {color: styleConfig.text}]}>{feedback.score}%</Text>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          style={{ width: '100%' }}
+        >
+            <View style={styles.wordContainer}>
+              <Text style={styles.wordText}>{activeWord}</Text>
+              <View style={styles.sentenceBox}>
+                 <Text style={styles.sentenceText}>{activeSentence}</Text>
               </View>
             </View>
-            
-            {feedback.transcript && (
-               <View style={styles.transcriptBox}>
-                  <View style={styles.transcriptLabelRow}>
-                     <MessageSquare size={12} color="#6B7280" />
-                     <Text style={styles.transcriptLabel}>You said:</Text>
-                  </View>
-                  <Text style={styles.transcriptText}>"{feedback.transcript}"</Text>
+
+            <View style={styles.audioButtonsRow}>
+               <TouchableOpacity 
+                onPress={playWord}
+                style={[styles.audioButton, {backgroundColor: '#EFF6FF'}]}
+              >
+                <View style={[styles.iconCircle, {backgroundColor: '#3B82F6'}]}>
+                  <Volume2 size={24} stroke="#FFF" />
+                </View>
+                <Text style={[styles.audioButtonText, {color: '#1D4ED8'}]}>Hear Word</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                onPress={playSentence}
+                style={[styles.audioButton, {backgroundColor: '#FAF5FF'}]}
+              >
+                <View style={[styles.iconCircle, {backgroundColor: '#A855F7'}]}>
+                  <Volume2 size={24} stroke="#FFF" />
+                </View>
+                <Text style={[styles.audioButtonText, {color: '#7E22CE'}]}>Hear Sentence</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.actionContainer}>
+              {!recording ? (
+                <TouchableOpacity 
+                  onPress={startRecording}
+                  disabled={isProcessing}
+                  style={[styles.recordButton, {backgroundColor: '#66BB6A'}]}
+                >
+                  <Mic size={28} stroke="#FFF" />
+                  <Text style={styles.recordButtonText}>{isProcessing ? 'Checking...' : 'Tap to Read'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity 
+                  onPress={stopRecording}
+                  style={[styles.recordButton, {backgroundColor: '#EF4444'}]}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? <ActivityIndicator color="#FFF" /> : <Square size={28} stroke="#FFF" {...({fill: "#FFF"} as any)} />}
+                  <Text style={styles.recordButtonText}>{isProcessing ? 'Processing...' : 'Stop Recording'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {isProcessing && (
+               <View style={styles.loadingRow}>
+                 <ActivityIndicator size="small" color="#4A90E2" />
+                 <Text style={styles.loadingText}>Analyzing audio (this may take a moment)...</Text>
                </View>
             )}
 
-            {feedback.breakdown && (
-              <View style={styles.phoneticsBox}>
-                  <Text style={styles.phoneticsText}>Phonetics: {feedback.breakdown}</Text>
+            {feedback && styleConfig && (
+              <View style={[styles.feedbackBox, {backgroundColor: styleConfig.bg, borderColor: styleConfig.border}]}>
+                <View style={styles.feedbackHeader}>
+                  <View style={styles.feedbackRow}>
+                    {styleConfig.icon}
+                    <Text style={[styles.feedbackTitle, {color: styleConfig.text}]}>{feedback.text}</Text>
+                  </View>
+                  <View style={styles.scoreBadge}>
+                      <Text style={[styles.scoreText, {color: styleConfig.text}]}>{feedback.score}%</Text>
+                  </View>
+                </View>
+                
+                {feedback.transcript && (
+                   <View style={styles.transcriptBox}>
+                      <View style={styles.transcriptLabelRow}>
+                         <MessageSquare size={12} stroke="#6B7280" />
+                         <Text style={styles.transcriptLabel}>You said:</Text>
+                      </View>
+                      <Text style={styles.transcriptText}>"{feedback.transcript}"</Text>
+                   </View>
+                )}
+
+                {feedback.breakdown && (
+                  <View style={styles.phoneticsBox}>
+                      <Text style={styles.phoneticsText}>Phonetics: {feedback.breakdown}</Text>
+                  </View>
+                )}
+                 {currentIndex < items.length - 1 && feedback.score > 60 && (
+                     <TouchableOpacity onPress={nextWord} style={styles.nextLink}>
+                        <Text style={styles.nextLinkText}>Next Word</Text>
+                        <ArrowRight size={20} stroke="#4A90E2" />
+                     </TouchableOpacity>
+                 )}
               </View>
             )}
-             <TouchableOpacity onPress={nextWord} style={styles.nextLink}>
-                <Text style={styles.nextLinkText}>Next Word</Text>
-                <ArrowRight size={20} color="#4A90E2" />
-             </TouchableOpacity>
-          </View>
-        )}
+        </ScrollView>
       </View>
     </View>
   );
@@ -341,12 +353,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 4,
-    padding: 24,
     alignItems: 'center',
     flex: 1,
     position: 'relative',
     borderWidth: 4,
     borderColor: '#E8F5E9',
+    overflow: 'hidden', 
+  },
+  scrollContent: {
+    padding: 24, 
+    alignItems: 'center',
+    flexGrow: 1,
   },
   navButton: {
     position: 'absolute',
@@ -471,17 +488,21 @@ const styles = StyleSheet.create({
   feedbackHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start', // Changed from center to allow multiline text alignment
     marginBottom: 16,
   },
   feedbackRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1, // Allow row to take available width
+    paddingRight: 12, // Add buffer between text and score badge
   },
   feedbackTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
+    flexWrap: 'wrap', // Ensure text wraps
+    flexShrink: 1, // Ensure text shrinks if needed
   },
   scoreBadge: {
     backgroundColor: 'rgba(255,255,255,0.5)',
@@ -500,6 +521,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
+    width: '100%',
   },
   transcriptLabelRow: {
     flexDirection: 'row',
@@ -517,17 +539,21 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     fontStyle: 'italic',
     fontWeight: '500',
+    flexWrap: 'wrap',
+    flexShrink: 1, // Prevent overflow
   },
   phoneticsBox: {
     backgroundColor: 'rgba(255,255,255,0.5)',
     padding: 8,
     borderRadius: 8,
-    alignSelf: 'flex-start',
+    width: '100%',
   },
   phoneticsText: {
     fontSize: 14,
     color: '#6B7280',
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    flexWrap: 'wrap',
+    flexShrink: 1, // Prevent overflow
   },
   nextLink: {
     marginTop: 16,

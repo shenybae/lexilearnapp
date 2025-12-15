@@ -8,12 +8,15 @@ import * as Speech from 'expo-speech';
 interface SpellingActivityProps {
   items: SpellingItem[];
   difficulty: Difficulty;
+  initialIndex?: number;
   onComplete: (score: number) => void;
+  onLevelComplete?: (levelIndex: number) => void;
   onExit: () => void;
 }
 
-export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, difficulty, onComplete, onExit }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, difficulty, onComplete, onLevelComplete, onExit, initialIndex = 0 }) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [unlockedLevel, setUnlockedLevel] = useState(initialIndex);
   const [currentLetters, setCurrentLetters] = useState<string[]>([]);
   const [userAnswer, setUserAnswer] = useState<(string | null)[]>([]);
   const [isCorrect, setIsCorrect] = useState(false);
@@ -94,6 +97,15 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
       Speech.speak(`Correct! The word is ${currentItem.word}`);
       const score = 100;
       onComplete(score);
+      
+      // UNLOCK NEXT IF CORRECT
+      if (currentIndex >= unlockedLevel) {
+          const nextLevel = Math.max(unlockedLevel, currentIndex + 1);
+          setUnlockedLevel(nextLevel);
+          if (onLevelComplete) {
+              onLevelComplete(nextLevel - 1);
+          }
+      }
     } else {
       setFeedback('Try again!');
       Speech.speak("Try again");
@@ -117,7 +129,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft size={24} color="#4B5563" /> 
+          <ChevronLeft size={24} stroke="#4B5563" /> 
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -131,10 +143,19 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
         
         {/* Navigation */}
         <TouchableOpacity onPress={prevLevel} disabled={currentIndex === 0} style={[styles.navButton, styles.navLeft, currentIndex === 0 && styles.disabledNav]}>
-          <ChevronLeft size={24} color="#000" />
+          <ChevronLeft size={24} stroke="#000" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={nextLevel} disabled={currentIndex === items.length - 1} style={[styles.navButton, styles.navRight, currentIndex === items.length - 1 && styles.disabledNav]}>
-          <ChevronRight size={24} color="#000" />
+        
+        <TouchableOpacity 
+            onPress={nextLevel} 
+            disabled={currentIndex === items.length - 1 || currentIndex >= unlockedLevel} 
+            style={[
+                styles.navButton, 
+                styles.navRight, 
+                (currentIndex === items.length - 1 || currentIndex >= unlockedLevel) && styles.disabledNav
+            ]}
+        >
+          <ChevronRight size={24} stroke={currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} />
         </TouchableOpacity>
 
         {/* Word / Image Area */}
@@ -144,7 +165,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
                 onPress={playWord} 
                 style={styles.hearButton}
             >
-              <Volume2 size={24} color="#FFF" /> 
+              <Volume2 size={24} stroke="#FFF" /> 
               <Text style={styles.hearButtonText}>Hear Word</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={playHint} style={styles.hintButton}>
@@ -178,7 +199,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
         {/* Feedback */}
         {feedback ? (
           <View style={styles.feedbackContainer}>
-            {isCorrect && <CheckCircle size={24} color="#16A34A" />}
+            {isCorrect && <CheckCircle size={24} stroke="#16A34A" />}
             <Text style={[styles.feedbackText, isCorrect ? styles.textSuccess : styles.textError]}>{feedback}</Text>
           </View>
         ) : null}
@@ -199,7 +220,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
 
         {/* Reset */}
         <TouchableOpacity onPress={resetLevel} style={styles.resetButton}>
-          <RotateCcw size={16} color="#9CA3AF" />
+          <RotateCcw size={16} stroke="#9CA3AF" />
           <Text style={styles.resetText}>Reset Level</Text>
         </TouchableOpacity>
 
@@ -281,6 +302,7 @@ const styles = StyleSheet.create({
   },
   disabledNav: {
     opacity: 0.3,
+    backgroundColor: '#F3F4F6',
   },
   wordArea: {
     alignItems: 'center',

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import pickle
 import numpy as np
+from fastapi.middleware.cors import CORSMiddleware
 
 # -------------------------------
 # Load the saved model, scaler, and label encoder
@@ -17,6 +18,14 @@ with open('best_dyslexia_focus_model_labels.pkl', 'rb') as f:
 # FastAPI app
 # -------------------------------
 app = FastAPI(title="Dyslexia Focus Prediction API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -------------------------------
 # Request body schema

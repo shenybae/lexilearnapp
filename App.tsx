@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
 import { Screen, Difficulty, UserProfile, ProgressRecord } from './types';
@@ -15,7 +16,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { Brain, User, Map as MapIcon, GraduationCap, ArrowLeft, LogOut, PenTool, BookOpen, Keyboard, Zap, ChevronRight, Star } from 'lucide-react-native';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore/lite';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -23,6 +24,24 @@ const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
   const [selectedActivityType, setSelectedActivityType] = useState<'TRACING' | 'READING' | 'SPELLING' | 'MEMORY' | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.MILD);
+
+  // Check Backend Status
+  useEffect(() => {
+    const checkBackend = async () => {
+        try {
+            console.log("Checking backend connection...");
+            const response = await fetch('https://lexilearnapp.onrender.com');
+            if (response.ok) {
+                console.log("✅ Backend [https://lexilearnapp.onrender.com] is UP and running!");
+            } else {
+                console.log(`⚠️ Backend returned status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error("❌ Backend [https://lexilearnapp.onrender.com] is UNREACHABLE or Network Error", error);
+        }
+    };
+    checkBackend();
+  }, []);
 
   // Auth & Profile Sync logic
   useEffect(() => {
@@ -44,7 +63,7 @@ const App: React.FC = () => {
                     setCurrentScreen(Screen.HOME);
                 }
             } else {
-                // New user via auth but no profile doc (rare in this flow, usually handled by SignUp)
+                // New user via auth but no profile doc
                 const fallbackProfile: UserProfile = { 
                     uid: user.uid, 
                     email: user.email!, 
@@ -78,14 +97,17 @@ const App: React.FC = () => {
       email: role === 'Admin' ? 'admin@lexilearn.com' : 'demo@lexilearn.com',
       childName: role === 'Admin' ? 'N/A' : 'Alex (Demo)',
       role: role,
-      // FIX: Ensure assessmentComplete is FALSE for Guardian so they see the assessment flow
       assessmentComplete: role === 'Admin', 
       assignedDifficulty: Difficulty.MILD,
       progressHistory: [
           { date: 'Oct 20', activityType: 'Tracing', score: 85, details: 'Demo Line' },
           { date: 'Oct 21', activityType: 'Reading', score: 92, details: 'Demo Word' },
           { date: 'Oct 22', activityType: 'Spelling', score: 78, details: 'Demo Spell' },
-      ]
+      ],
+      lastTracingIndex: 2,
+      lastReadingIndex: 1,
+      lastSpellingIndex: 0,
+      lastMemoryIndex: 0
     };
     setCurrentUser(demoUser);
     if (role === 'Admin') {
@@ -106,12 +128,10 @@ const App: React.FC = () => {
       };
 
       if (currentUser) {
-          // Optimistic local update
           const updatedHistory = [...(currentUser.progressHistory || []), newRecord];
           const updatedUser = { ...currentUser, progressHistory: updatedHistory };
           setCurrentUser(updatedUser);
 
-          // Persist to Firebase if not demo user
           if (currentUser.uid !== 'demo-user-123') {
               try {
                   const userRef = doc(db, "users", currentUser.uid);
@@ -125,11 +145,32 @@ const App: React.FC = () => {
       }
   };
 
+  // NEW: Handles Saving Last Completed Level Index so user resumes next time
+  const handleLevelProgress = async (type: 'Tracing' | 'Reading' | 'Spelling' | 'Memory', levelIndex: number) => {
+      if (!currentUser) return;
+
+      // Ensure we don't go backward in progress if user replays an old level
+      const currentSaved = currentUser[`last${type}Index` as keyof UserProfile] as number || 0;
+      if (levelIndex <= currentSaved) return;
+
+      const fieldName = `last${type}Index` as keyof UserProfile;
+      const updatedUser = { ...currentUser, [fieldName]: levelIndex };
+      setCurrentUser(updatedUser);
+
+      if (currentUser.uid !== 'demo-user-123') {
+          try {
+              const userRef = doc(db, "users", currentUser.uid);
+              await updateDoc(userRef, { [fieldName]: levelIndex });
+          } catch (e) {
+              console.error("Error saving level progress:", e);
+          }
+      }
+  };
+
   const updateChildName = async (newName: string) => {
       if (currentUser) {
           const updated = { ...currentUser, childName: newName };
           setCurrentUser(updated);
-          // Update Firestore if not demo
           if (currentUser.uid !== 'demo-user-123') {
               try {
                   const userRef = doc(db, "users", currentUser.uid);
@@ -145,11 +186,11 @@ const App: React.FC = () => {
     <ScrollView contentContainerStyle={styles.dashboardScroll} style={styles.background}>
        <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => setCurrentScreen(Screen.HOME)} style={styles.row}>
-            <ArrowLeft color="#6B7280" />
+            <ArrowLeft stroke="#6B7280" />
             <Text style={{color: '#6B7280', fontWeight: 'bold', marginLeft: 4}}>Home</Text>
         </TouchableOpacity>
         <View style={styles.row}>
-          <Brain size={40} color="#4A90E2" />
+          <Brain size={40} stroke="#4A90E2" />
           <Text style={styles.headerTitle}>Activities</Text>
         </View>
         <View style={{width: 40}} /> 
@@ -162,7 +203,7 @@ const App: React.FC = () => {
       <View style={styles.levelIndicator}>
           <Text style={styles.levelIndicatorLabel}>Recommended Level:</Text>
           <View style={styles.levelIndicatorBadge}>
-            <Star size={16} fill="#FACC15" color="#FACC15" />
+            <Star size={16} stroke="#FACC15" {...({fill: "#FACC15"} as any)} />
             <Text style={styles.levelIndicatorText}>{difficulty}</Text>
           </View>
       </View>
@@ -172,48 +213,49 @@ const App: React.FC = () => {
           onPress={() => { setSelectedActivityType('TRACING'); setCurrentScreen(Screen.TRACING); }}
           style={styles.activityCard}
         >
-          <View style={[styles.iconBox, {backgroundColor: '#DBEAFE'}]}><PenTool size={32} color="#2563EB" /></View>
+          <View style={[styles.iconBox, {backgroundColor: '#DBEAFE'}]}><PenTool size={32} stroke="#2563EB" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Tracing</Text>
-            <Text style={styles.activityDesc}>Practice lines & letters</Text>
+            {/* Display stored level or 1 if undefined */}
+            <Text style={styles.activityDesc}>Level {currentUser?.lastTracingIndex ? currentUser.lastTracingIndex + 1 : 1}</Text>
           </View>
-          <ChevronRight color="#D1D5DB" size={28} />
+          <ChevronRight stroke="#D1D5DB" size={28} />
         </TouchableOpacity>
 
         <TouchableOpacity 
           onPress={() => { setSelectedActivityType('READING'); setCurrentScreen(Screen.READING); }}
           style={styles.activityCard}
         >
-          <View style={[styles.iconBox, {backgroundColor: '#DCFCE7'}]}><BookOpen size={32} color="#16A34A" /></View>
+          <View style={[styles.iconBox, {backgroundColor: '#DCFCE7'}]}><BookOpen size={32} stroke="#16A34A" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Reading</Text>
-            <Text style={styles.activityDesc}>Practice pronunciation</Text>
+            <Text style={styles.activityDesc}>Level {currentUser?.lastReadingIndex ? currentUser.lastReadingIndex + 1 : 1}</Text>
           </View>
-          <ChevronRight color="#D1D5DB" size={28} />
+          <ChevronRight stroke="#D1D5DB" size={28} />
         </TouchableOpacity>
 
         <TouchableOpacity 
           onPress={() => { setSelectedActivityType('SPELLING'); setCurrentScreen(Screen.SPELLING); }}
           style={styles.activityCard}
         >
-          <View style={[styles.iconBox, {backgroundColor: '#FEF9C3'}]}><Keyboard size={32} color="#B45309" /></View>
+          <View style={[styles.iconBox, {backgroundColor: '#FEF9C3'}]}><Keyboard size={32} stroke="#B45309" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Spelling</Text>
-            <Text style={styles.activityDesc}>Word construction</Text>
+            <Text style={styles.activityDesc}>Level {currentUser?.lastSpellingIndex ? currentUser.lastSpellingIndex + 1 : 1}</Text>
           </View>
-          <ChevronRight color="#D1D5DB" size={28} />
+          <ChevronRight stroke="#D1D5DB" size={28} />
         </TouchableOpacity>
 
         <TouchableOpacity 
           onPress={() => { setSelectedActivityType('MEMORY'); setCurrentScreen(Screen.MEMORY); }}
           style={styles.activityCard}
         >
-          <View style={[styles.iconBox, {backgroundColor: '#F3E8FF'}]}><Zap size={32} color="#9333EA" /></View>
+          <View style={[styles.iconBox, {backgroundColor: '#F3E8FF'}]}><Zap size={32} stroke="#9333EA" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Memory</Text>
-            <Text style={styles.activityDesc}>Pattern recognition</Text>
+            <Text style={styles.activityDesc}>Level {currentUser?.lastMemoryIndex ? currentUser.lastMemoryIndex + 1 : 1}</Text>
           </View>
-          <ChevronRight color="#D1D5DB" size={28} />
+          <ChevronRight stroke="#D1D5DB" size={28} />
         </TouchableOpacity>
       </View>
 
@@ -221,7 +263,7 @@ const App: React.FC = () => {
         onPress={() => setCurrentScreen(Screen.LEARNING_JOURNEY)}
         style={styles.journeyButton}
       >
-          <MapIcon size={24} color="#2563EB" />
+          <MapIcon size={24} stroke="#2563EB" />
           <Text style={{fontWeight: 'bold', color: '#1D4ED8', marginLeft: 12}}>View Learning Map</Text>
       </TouchableOpacity>
     </ScrollView>
@@ -230,12 +272,12 @@ const App: React.FC = () => {
   const renderLanding = () => (
     <View style={styles.landingContainer}>
       <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-          <LogOut size={20} color="#6B7280" />
+          <LogOut size={20} stroke="#6B7280" />
           <Text style={{color: '#6B7280', marginLeft: 8}}>Sign Out</Text>
       </TouchableOpacity>
 
       <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 64}}>
-          <Brain size={64} color="#4A90E2" />
+          <Brain size={64} stroke="#4A90E2" />
           <Text style={styles.logoText}>LexiLearn</Text>
       </View>
       
@@ -244,7 +286,7 @@ const App: React.FC = () => {
           onPress={() => setCurrentScreen(Screen.CHILD_DASHBOARD)}
           style={styles.roleCard}
         >
-          <View style={[styles.roleIconBox, {backgroundColor: '#DBEAFE'}]}><User size={48} color="#4A90E2" /></View>
+          <View style={[styles.roleIconBox, {backgroundColor: '#DBEAFE'}]}><User size={48} stroke="#4A90E2" /></View>
           <Text style={styles.roleTitle}>Student Area</Text>
         </TouchableOpacity>
 
@@ -252,7 +294,7 @@ const App: React.FC = () => {
           onPress={() => setCurrentScreen(Screen.DASHBOARD)}
           style={[styles.roleCard, {borderColor: 'rgba(22, 163, 74, 0.2)'}]}
         >
-          <View style={[styles.roleIconBox, {backgroundColor: '#DCFCE7'}]}><GraduationCap size={48} color="#16A34A" /></View>
+          <View style={[styles.roleIconBox, {backgroundColor: '#DCFCE7'}]}><GraduationCap size={48} stroke="#16A34A" /></View>
           <Text style={styles.roleTitle}>Parent Dashboard</Text>
         </TouchableOpacity>
       </View>
@@ -290,7 +332,9 @@ const App: React.FC = () => {
           <TracingActivity 
             items={TRACING_ITEMS} 
             difficulty={difficulty} 
+            initialIndex={currentUser?.lastTracingIndex || 0}
             onComplete={(s) => handleActivityComplete('Tracing', s)} 
+            onLevelComplete={(idx) => handleLevelProgress('Tracing', idx)}
             onExit={() => setCurrentScreen(Screen.CHILD_DASHBOARD)} 
           />
        )}
@@ -298,7 +342,9 @@ const App: React.FC = () => {
           <ReadingActivity 
             items={READING_ITEMS} 
             difficulty={difficulty} 
+            initialIndex={currentUser?.lastReadingIndex || 0}
             onComplete={(s) => handleActivityComplete('Reading', s)} 
+            onLevelComplete={(idx) => handleLevelProgress('Reading', idx)}
             onExit={() => setCurrentScreen(Screen.CHILD_DASHBOARD)} 
           />
        )}
@@ -306,7 +352,9 @@ const App: React.FC = () => {
           <SpellingActivity 
              items={SPELLING_ITEMS} 
              difficulty={difficulty}
+             initialIndex={currentUser?.lastSpellingIndex || 0}
              onComplete={(s) => handleActivityComplete('Spelling', s)}
+             onLevelComplete={(idx) => handleLevelProgress('Spelling', idx)}
              onExit={() => setCurrentScreen(Screen.CHILD_DASHBOARD)}
           />
        )}
@@ -314,7 +362,9 @@ const App: React.FC = () => {
           <MemoryActivity 
              items={MEMORY_ITEMS} 
              difficulty={difficulty}
+             initialIndex={currentUser?.lastMemoryIndex || 0}
              onComplete={(s) => handleActivityComplete('Memory', s)}
+             onLevelComplete={(idx) => handleLevelProgress('Memory', idx)}
              onExit={() => setCurrentScreen(Screen.CHILD_DASHBOARD)}
           />
        )}

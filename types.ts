@@ -82,6 +82,11 @@ export interface UserProfile {
   assignedDifficulty: Difficulty;
   assessmentScores?: AssessmentScores;
   progressHistory?: ProgressRecord[];
+  // Progress Tracking (Last Completed Level Index)
+  lastTracingIndex?: number;
+  lastReadingIndex?: number;
+  lastSpellingIndex?: number;
+  lastMemoryIndex?: number;
 }
 
 export interface GuardianApplication {
