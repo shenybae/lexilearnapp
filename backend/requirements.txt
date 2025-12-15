@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+gunicorn
+torch
+transformers
+librosa
+soundfile
+pydantic
