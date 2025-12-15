@@ -1,102 +1,72 @@
-import os
+from fastapi import FastAPI
+from pydantic import BaseModel
 import pickle
 import numpy as np
-from fastapi import FastAPI, UploadFile, Form
-from pydantic import BaseModel
-from dotenv import load_dotenv
-import requests
 
-load_dotenv()
-
-HF_ACCESS_TOKEN = os.getenv("HF_ACCESS_TOKEN")
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/sesefi/LexiReading-pronunciation"
-
-# Load local ML model
-with open("models/best_dyslexia_focus_model.pkl", "rb") as f:
-    difficulty_model = pickle.load(f)
-with open("models/best_dyslexia_focus_model_scaler.pkl", "rb") as f:
+# -------------------------------
+# Load the saved model, scaler, and label encoder
+# -------------------------------
+with open('best_dyslexia_focus_model.pkl', 'rb') as f:
+    model = pickle.load(f)
+with open('best_dyslexia_focus_model_scaler.pkl', 'rb') as f:
     scaler = pickle.load(f)
-with open("models/best_dyslexia_focus_model_labels.pkl", "rb") as f:
+with open('best_dyslexia_focus_model_labels.pkl', 'rb') as f:
     label_encoder = pickle.load(f)
 
-app = FastAPI(title="Lexi Reading + Difficulty Prediction API")
+# -------------------------------
+# Define FastAPI app
+# -------------------------------
+app = FastAPI(title="Dyslexia Focus Prediction API")
 
+# -------------------------------
+# Define request body structure
+# -------------------------------
+class StudentFeatures(BaseModel):
+    age: float
+    reading_speed: float
+    reading_accuracy: float
+    reading_comprehension: float
+    writing_speed: float
+    writing_quality: float
+    grammar_sentence: float
+    phonetic_spelling: float
+    irregular_word_spelling: float
+    spelling_accuracy: float
 
-# -------- Hugging Face Transcription --------
-def transcribe_with_hf(audio_bytes: bytes) -> str:
-    headers = {"Authorization": f"Bearer {HF_ACCESS_TOKEN}"}
-    response = requests.post(HF_MODEL_URL, headers=headers, data=audio_bytes)
-    
-    if response.status_code != 200:
-        return ""
-    
-    result = response.json()
-    return result.get("text", "")
-
-
-# -------- Pydantic Models --------
-class PronunciationRequest(BaseModel):
-    target_word: str
-
-
-class AssessmentRequest(BaseModel):
-    duration_seconds: float
-    target_text: str
-
-
-# -------- Endpoints --------
-@app.post("/pronunciation")
-async def check_pronunciation(audio: UploadFile, target_word: str = Form(...)):
-    audio_bytes = await audio.read()
-    transcript = transcribe_with_hf(audio_bytes)
-    if not transcript:
-        return {"score": 0, "isCorrect": False, "feedback": "Audio could not be transcribed", "transcript": ""}
-
-    # Simple scoring: exact match percentage
-    score = 100 if transcript.strip().lower() == target_word.lower() else 70
-    feedback = "Perfect pronunciation!" if score == 100 else "Try again."
-    
-    return {"score": score, "isCorrect": score >= 70, "feedback": feedback, "transcript": transcript}
-
-
-@app.post("/reading-assessment")
-async def reading_assessment(audio: UploadFile, target_text: str = Form(...), duration_seconds: float = Form(...)):
-    audio_bytes = await audio.read()
-    transcript = transcribe_with_hf(audio_bytes)
-    if not transcript:
-        return {"wpm": 0, "accuracy": 0, "transcript": ""}
-
-    # Simple accuracy: percent of correct words
-    target_words = target_text.lower().split()
-    transcript_words = transcript.lower().split()
-    correct = sum(t1 == t2 for t1, t2 in zip(target_words, transcript_words))
-    accuracy = round(correct / len(target_words) * 100, 2) if target_words else 0
-    wpm = round(len(transcript_words) / (duration_seconds / 60)) if duration_seconds > 0 else 0
-    
-    return {"wpm": wpm, "accuracy": accuracy, "transcript": transcript}
-
-
-@app.post("/predict-difficulty")
-async def predict_difficulty(
-    age: float = Form(...),
-    reading_speed: float = Form(...),
-    reading_accuracy: float = Form(...),
-    reading_comprehension: float = Form(...),
-    writing_speed: float = Form(...),
-    writing_quality: float = Form(...),
-    grammar_sentence: float = Form(...),
-    phonetic_spelling: float = Form(...),
-    irregular_word_spelling: float = Form(...),
-    spelling_accuracy: float = Form(...)
-):
+# -------------------------------
+# Prediction endpoint
+# -------------------------------
+@app.post("/predict")
+def predict(student: StudentFeatures):
+    # Convert input to numpy array
     features = np.array([[
-        age, reading_speed, reading_accuracy, reading_comprehension,
-        writing_speed, writing_quality, grammar_sentence,
-        phonetic_spelling, irregular_word_spelling, spelling_accuracy
+        student.age,
+        student.reading_speed,
+        student.reading_accuracy,
+        student.reading_comprehension,
+        student.writing_speed,
+        student.writing_quality,
+        student.grammar_sentence,
+        student.phonetic_spelling,
+        student.irregular_word_spelling,
+        student.spelling_accuracy
     ]])
-    
+
+    # Scale features
     features_scaled = scaler.transform(features)
-    prediction = difficulty_model.predict(features_scaled)[0]
-    predicted_label = label_encoder.inverse_transform([prediction])[0]
-    
-    return {"predicted_difficulty": predicted_label}
+
+    # Predict
+    pred_class_idx = model.predict(features_scaled)[0]
+    pred_class = label_encoder.inverse_transform([pred_class_idx])[0]
+
+    # Probabilities
+    if hasattr(model, 'predict_proba'):
+        probs = model.predict_proba(features_scaled)[0]
+        prob_dict = {cls: float(probs[i]) for i, cls in enumerate(label_encoder.classes_)}
+    else:
+        prob_dict = None
+
+    return {
+        "predicted_class": pred_class,
+        "probabilities": prob_dict
+    }

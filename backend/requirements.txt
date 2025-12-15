@@ -11,3 +11,6 @@ transformers
 librosa
 soundfile
 pydantic
+python-multipart
+requests
+python-dotenv
