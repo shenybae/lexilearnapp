@@ -1,36 +1,13 @@
 
 import { ViewProps, TextProps, TouchableOpacityProps, PressableProps, ScrollViewProps, TextInputProps, ImageProps, FlatListProps } from 'react-native';
 
-declare module 'react-native' {
-  interface ViewProps {
-    className?: string;
-  }
-  interface TextProps {
-    className?: string;
-  }
-  interface TouchableOpacityProps {
-    className?: string;
-  }
-  interface PressableProps {
-    className?: string;
-  }
-  interface ScrollViewProps {
-    className?: string;
-  }
-  interface TextInputProps {
-    className?: string;
-  }
-  interface ImageProps {
-    className?: string;
-  }
-  interface FlatListProps<ItemT> {
-    className?: string;
-  }
-}
+// Removed manual augmentation causing 'module not found' error.
+// Ensure NativeWind types are referenced in a separate d.ts file if needed (e.g., app.d.ts with /// <reference types="nativewind/types" />)
 
 export enum Screen {
   LOGIN = 'LOGIN',
   SIGN_UP = 'SIGN_UP',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
   TWO_FACTOR = 'TWO_FACTOR',
   ASSESSMENT = 'ASSESSMENT',
   HOME = 'HOME',
@@ -77,7 +54,9 @@ export interface UserProfile {
   uid: string;
   email: string;
   childName: string;
+  childAge?: string;
   role: 'Guardian' | 'Admin';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'; // Added status field
   assessmentComplete: boolean;
   assignedDifficulty: Difficulty;
   assessmentScores?: AssessmentScores;
@@ -91,6 +70,7 @@ export interface UserProfile {
 
 export interface GuardianApplication {
   id?: string;
+  uid?: string; // Link to the Auth User
   guardianName: string;
   email: string;
   childName: string;

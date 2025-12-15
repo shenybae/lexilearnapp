@@ -27,9 +27,6 @@ const TASKS = [
   'Spelling Accuracy'
 ];
 
-// Default Age as of now
-const DEFAULT_AGE = 8.0;
-
 export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete }) => {
   const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
   const [scores, setScores] = useState<number[]>(new Array(9).fill(0));
@@ -42,6 +39,10 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
   const [gameState, setGameState] = useState<'INTRO' | 'ACTIVE' | 'FEEDBACK'>('INTRO');
   const [accumulatedData, setAccumulatedData] = useState<any[]>([]); 
   const startTimeRef = useRef<number>(0);
+
+  // Derive age from user profile, fallback to 8 if invalid or missing
+  const userAge = user.childAge ? parseFloat(user.childAge) : 8.0;
+  const effectiveAge = isNaN(userAge) ? 8.0 : userAge;
 
   // Drawing
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -255,19 +256,19 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
        const result = await analyzeReadingAssessment(uri, readingSpeedText, durationSec);
        
        if (!result.transcript) {
-          // Fallback if API fails heavily or retries exhausted
+          // Fallback if API fails heavily
           Alert.alert("Notice", "AI Service busy. Using standard baseline.");
-          handleScoreAndNext(0, 50); // Default baseline
+          handleScoreAndNext(0, 50); 
           return;
        }
        
        // SCORING RULE: 
        // 1. Calculate WPM Score: (Actual WPM / Expected WPM) * 100
-       // Age Expectations: 6-7: 60, 8-9: 90, 10-11: 120, 12+: 150
+       // Age Expectations using effectiveAge
        let expectedWPM = 90;
-       if (DEFAULT_AGE <= 7) expectedWPM = 60;
-       else if (DEFAULT_AGE <= 9) expectedWPM = 90;
-       else if (DEFAULT_AGE <= 11) expectedWPM = 120;
+       if (effectiveAge <= 7) expectedWPM = 60;
+       else if (effectiveAge <= 9) expectedWPM = 90;
+       else if (effectiveAge <= 11) expectedWPM = 120;
        else expectedWPM = 150;
 
        const wpmScore = Math.min(100, (result.wpm / expectedWPM) * 100);
@@ -307,8 +308,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
   const handleTraceQualitySubmit = () => {
      // SCORING RULE: Rubric based via point density proxy
-     // Prompt: Letter Formation (30) + Legibility (30) + Spacing (20) + Organization (20)
-     // Implementation proxy: Point count indicates detail/effort.
      const points = tracingPoints.length;
      let score = 0;
      if (points > 100) score = 95;      
@@ -335,6 +334,9 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
   const finishAssessment = async (finalScores: number[]) => {
     setIsCalculatingPath(true);
     
+    // Artificial Delay to show the "Calculating..." screen
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
     // 1. Calculate Category Averages (Rule: Simple Average of components)
     // Reading Avg: (Speed + Accuracy + Comprehension) / 3
     const readingAvg = Math.round((finalScores[0] + finalScores[1] + finalScores[2]) / 3);
@@ -351,10 +353,10 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     let assignedDiff = Difficulty.MODERATE;
     let predictedFocus: string[] | null = null;
 
-    // --- PREDICTION API CALL ---
+    // --- STEP 4: PREDICTION API CALL ---
     try {
         const payload = {
-            age: DEFAULT_AGE, 
+            age: effectiveAge, 
             reading_speed: finalScores[0],
             reading_accuracy: finalScores[1],
             reading_comprehension: finalScores[2],
@@ -368,7 +370,10 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
         const response = await fetch('https://lexilearnapp.onrender.com/predict', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json' 
+            },
             body: JSON.stringify(payload)
         });
 
@@ -386,11 +391,19 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                 setApiFocusOrder(focusNames);
             }
         } else {
-            throw new Error("API Error");
+            console.warn(`API responded with status: ${response.status}`);
+            throw new Error(`API Error: ${response.status}`);
         }
-    } catch (error) {
+    } catch (error: any) {
         console.warn("Prediction API failed, using local fallback rules.", error);
         
+        // Show specific alert for server connection issues
+        if (error.message && error.message.includes("Network request failed")) {
+             Alert.alert("Server Unreachable", "Could not connect to the prediction server. Using offline fallback rules. Please check if your server allows CORS.");
+        } else if (error.message && error.message.includes("API Error: 503")) {
+             Alert.alert("Server Busy", "The prediction server is starting up (cold start). Using offline fallback rules.");
+        }
+
         // --- FALLBACK LOGIC BASED ON PROMPT RULES ---
         if (overallAverage >= 65) assignedDiff = Difficulty.MILD;
         else if (overallAverage >= 40) assignedDiff = Difficulty.MODERATE;
@@ -408,17 +421,23 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
     const updatedProfile: UserProfile = { ...user, assessmentComplete: true, assignedDifficulty: assignedDiff, assessmentScores };
 
-    if (user.uid !== 'demo-user-123') {
+    // --- STEP 4: SAVE TO FIRESTORE ---
+    if (user.uid) {
         try {
-            await setDoc(doc(db, "users", user.uid), { assessmentComplete: true, assignedDifficulty: assignedDiff, assessmentScores }, { merge: true });
-        } catch (e) {}
+            await setDoc(doc(db, "users", user.uid), { 
+                assessmentComplete: true, 
+                assignedDifficulty: assignedDiff, 
+                assessmentScores 
+            }, { merge: true });
+        } catch (e) {
+            console.error("Error saving assessment results:", e);
+        }
     }
     setCalculatedProfile(updatedProfile);
     setIsCalculatingPath(false);
   };
 
   const renderTask = () => {
-      // (Render logic unchanged)
       switch(currentTaskIndex) {
           case 0: return (
              <View style={styles.centerCol}>
@@ -652,12 +671,12 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                         </View>
                     </View>
 
-                    {/* Tertiary Focus */}
+                    {/* Tertiary Focus (Last Focus) */}
                     <View style={[styles.focusItem, { backgroundColor: '#DCFCE7', borderColor: '#86EFAC' }]}>
                         <View style={styles.focusRow}>
                             <CheckCircle stroke="#16A34A" size={24} />
                             <View style={{flex: 1}}>
-                                <Text style={[styles.focusLabel, {color: '#15803D'}]}>Strongest Skill</Text>
+                                <Text style={[styles.focusLabel, {color: '#15803D'}]}>Last Focus</Text>
                                 <Text style={styles.focusValue}>{focusAreas[2].name}</Text>
                             </View>
                             <Text style={styles.focusScore}>{focusAreas[2].score}%</Text>

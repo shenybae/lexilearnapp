@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Dimensions, StyleSheet } from 'react-native';
 import { Svg, Path, Circle, Line, G, Text as SvgText } from 'react-native-svg';
 import { ProgressRecord, Difficulty, AssessmentScores } from '../types';
-import { Edit2, Save, Settings, Shield, BookOpen, PenTool, Type, LogOut, Zap } from 'lucide-react-native';
+import { Edit2, Save, Settings, Shield, BookOpen, PenTool, Type, LogOut, Zap, PlusCircle } from 'lucide-react-native';
 
 interface DashboardProps {
   progressData: ProgressRecord[];
@@ -23,22 +23,20 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
     setIsEditingName(false);
   };
 
-  const data = progressData.length > 0 ? progressData : [
-    { date: 'Mon', activityType: 'Reading', score: 72, details: 'Demo' },
-    { date: 'Tue', activityType: 'Spelling', score: 68, details: 'Demo' },
-    { date: 'Wed', activityType: 'Tracing', score: 85, details: 'Demo' },
-    { date: 'Thu', activityType: 'Reading', score: 78, details: 'Demo' },
-    { date: 'Fri', activityType: 'Memory', score: 90, details: 'Demo' },
-  ] as unknown as ProgressRecord[];
+  const data = progressData || [];
+  const hasData = data.length > 0;
 
-  const avgScore = Math.round(data.reduce((acc: number, curr: ProgressRecord) => acc + curr.score, 0) / data.length);
+  const avgScore = hasData 
+    ? Math.round(data.reduce((acc: number, curr: ProgressRecord) => acc + curr.score, 0) / data.length) 
+    : 0;
+    
   const screenWidth = Dimensions.get('window').width;
 
   // Simple Line Chart Logic
   const chartHeight = 220;
   const chartWidth = screenWidth - 80; // Padding
   const maxScore = 100;
-  const xGap = chartWidth / (data.length - 1 || 1);
+  const xGap = data.length > 1 ? chartWidth / (data.length - 1) : chartWidth;
 
   const points = data.map((d, i) => {
       const x = i * xGap;
@@ -46,7 +44,9 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
       return { x, y, val: d.score, label: d.date };
   });
 
-  const pathData = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+  const pathData = points.length > 1 
+    ? points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ')
+    : points.length === 1 ? `M 0 ${points[0].y} L ${chartWidth} ${points[0].y}` : '';
 
   // Focus Area Logic
   let readingAvg = 0, writingAvg = 0, spellingAvg = 0;
@@ -65,17 +65,11 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
     // Sort ascending (lowest score is primary focus)
     focusAreas = areas.sort((a, b) => a.score - b.score);
   } else {
-    // Demo fallbacks if no assessment taken
-    readingAvg = 78; writingAvg = 65; spellingAvg = 82;
-    focusAreas = [
-        { name: 'Writing', score: 65 },
-        { name: 'Reading', score: 78 },
-        { name: 'Spelling', score: 82 }
-    ];
+    focusAreas = [];
   }
 
-  // Determine Memory Score from Activity History (since not in initial assessment)
-  const memoryRecords = progressData.filter(p => p.activityType === 'Memory');
+  // Determine Memory Score from Activity History
+  const memoryRecords = data.filter(p => p.activityType === 'Memory');
   const memoryAvg = memoryRecords.length > 0 
       ? Math.round(memoryRecords.reduce((acc, curr) => acc + curr.score, 0) / memoryRecords.length) 
       : 0;
@@ -121,7 +115,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
         </View>
         <View style={[styles.summaryCard, {borderLeftColor: '#8B5CF6'}]}>
           <Text style={styles.summaryLabel}>Focus Area</Text>
-          <Text style={[styles.summaryValue, {fontSize: 18}]} numberOfLines={1}>{focusAreas[0]?.name}</Text>
+          <Text style={[styles.summaryValue, {fontSize: 18}]} numberOfLines={1}>{focusAreas[0]?.name || "N/A"}</Text>
         </View>
         <View style={[styles.summaryCard, {borderLeftColor: '#F97316'}]}>
           <View style={styles.row}>
@@ -135,119 +129,122 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
       {/* Custom Chart */}
       <View style={styles.chartCard}>
           <Text style={styles.cardTitle}>Recent Activity Performance</Text>
-          <View style={{ height: 250, width: '100%' }}>
-             <Svg height="100%" width="100%" viewBox={`-10 -10 ${chartWidth + 40} ${chartHeight + 50}`}>
-                {/* Grid Lines */}
-                {[0, 25, 50, 75, 100].map((val) => {
-                    const y = chartHeight - (val / 100) * chartHeight;
-                    return (
-                        <G key={val}>
-                            <Line x1="0" y1={y} x2={chartWidth} y2={y} stroke="#E5E7EB" strokeWidth="1" />
-                            <SvgText x={chartWidth + 10} y={y + 4} fontSize="10" fill="#9CA3AF">{val}</SvgText>
+          {hasData ? (
+              <View style={{ height: 250, width: '100%' }}>
+                <Svg height="100%" width="100%" viewBox={`-10 -10 ${chartWidth + 40} ${chartHeight + 50}`}>
+                    {/* Grid Lines */}
+                    {[0, 25, 50, 75, 100].map((val) => {
+                        const y = chartHeight - (val / 100) * chartHeight;
+                        return (
+                            <G key={val}>
+                                <Line x1="0" y1={y} x2={chartWidth} y2={y} stroke="#E5E7EB" strokeWidth="1" />
+                                <SvgText x={chartWidth + 10} y={y + 4} fontSize="10" fill="#9CA3AF">{val}</SvgText>
+                            </G>
+                        );
+                    })}
+                    {pathData ? <Path d={pathData} fill="none" stroke="#4A90E2" strokeWidth="3" /> : null}
+                    {points.map((p, i) => (
+                        <G key={i}>
+                            <Circle cx={p.x} cy={p.y} r="5" fill="#4A90E2" stroke="#FFF" strokeWidth="2" />
+                            <SvgText x={p.x} y={chartHeight + 20} fontSize="10" fill="#6B7280" textAnchor="middle">{p.label}</SvgText>
                         </G>
-                    );
-                })}
-                <Path d={pathData} fill="none" stroke="#4A90E2" strokeWidth="3" />
-                {points.map((p, i) => (
-                    <G key={i}>
-                        <Circle cx={p.x} cy={p.y} r="5" fill="#4A90E2" stroke="#FFF" strokeWidth="2" />
-                        <SvgText x={p.x} y={chartHeight + 20} fontSize="10" fill="#6B7280" textAnchor="middle">{p.label}</SvgText>
-                    </G>
-                ))}
-             </Svg>
-          </View>
+                    ))}
+                </Svg>
+              </View>
+          ) : (
+             <View style={styles.emptyStateBox}>
+                 <PlusCircle size={48} stroke="#D1D5DB" />
+                 <Text style={styles.emptyStateText}>No activity data recorded yet.</Text>
+                 <Text style={styles.emptyStateSub}>Complete activities in the Student Area to see progress charts here.</Text>
+             </View>
+          )}
       </View>
 
       {/* Priorities */}
-      <View style={styles.prioritiesCard}>
-         <Text style={styles.cardTitle}>Focus Areas (From Assessment)</Text>
-         <View style={styles.priorityRow}>
-             <View style={styles.priorityItem}>
-                 <Text style={styles.priorityLabel}>Primary Focus</Text>
-                 <Text style={styles.priorityValue}>{focusAreas[0]?.name}</Text>
-                 <Text style={styles.priorityScore}>{focusAreas[0]?.score}%</Text>
-             </View>
-             <View style={[styles.priorityItem, {borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#F3F4F6'}]}>
-                 <Text style={styles.priorityLabel}>Secondary Focus</Text>
-                 <Text style={styles.priorityValue}>{focusAreas[1]?.name}</Text>
-                 <Text style={styles.priorityScore}>{focusAreas[1]?.score}%</Text>
-             </View>
-             <View style={styles.priorityItem}>
-                 <Text style={styles.priorityLabel}>Last Focus</Text>
-                 <Text style={styles.priorityValue}>{focusAreas[2]?.name}</Text>
-                 <Text style={styles.priorityScore}>{focusAreas[2]?.score}%</Text>
-             </View>
-         </View>
-      </View>
+      {focusAreas.length > 0 && (
+        <View style={styles.prioritiesCard}>
+           <Text style={styles.cardTitle}>Focus Areas (From Assessment)</Text>
+           <View style={styles.priorityRow}>
+               <View style={styles.priorityItem}>
+                   <Text style={styles.priorityLabel}>Primary Focus</Text>
+                   <Text style={styles.priorityValue}>{focusAreas[0]?.name}</Text>
+                   <Text style={styles.priorityScore}>{focusAreas[0]?.score}%</Text>
+               </View>
+               <View style={[styles.priorityItem, {borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#F3F4F6'}]}>
+                   <Text style={styles.priorityLabel}>Secondary Focus</Text>
+                   <Text style={styles.priorityValue}>{focusAreas[1]?.name}</Text>
+                   <Text style={styles.priorityScore}>{focusAreas[1]?.score}%</Text>
+               </View>
+               <View style={styles.priorityItem}>
+                   <Text style={styles.priorityLabel}>Last Focus</Text>
+                   <Text style={styles.priorityValue}>{focusAreas[2]?.name}</Text>
+                   <Text style={styles.priorityScore}>{focusAreas[2]?.score}%</Text>
+               </View>
+           </View>
+        </View>
+      )}
 
       {/* Breakdown */}
-      <View style={styles.breakdownCard}>
-         <Text style={styles.cardTitle}>Initial Assessment Results & Activity Avg</Text>
-         <Text style={styles.cardSubtitle}>Baseline scores captured during onboarding + recent activity.</Text>
-         <View style={{gap: 24}}>
-            <View>
-               <View style={styles.breakdownHeader}>
-                   <View style={styles.row}>
-                       <BookOpen size={18} stroke="#4B5563" />
-                       <Text style={styles.breakdownLabel}>Reading</Text>
+      {assessmentScores && (
+          <View style={styles.breakdownCard}>
+             <Text style={styles.cardTitle}>Initial Assessment Results</Text>
+             <View style={{gap: 24}}>
+                <View>
+                   <View style={styles.breakdownHeader}>
+                       <View style={styles.row}>
+                           <BookOpen size={18} stroke="#4B5563" />
+                           <Text style={styles.breakdownLabel}>Reading</Text>
+                       </View>
+                       <Text style={[styles.breakdownScore, {color: '#4A90E2'}]}>{readingAvg}%</Text>
                    </View>
-                   <Text style={[styles.breakdownScore, {color: '#4A90E2'}]}>{readingAvg}%</Text>
-               </View>
-               <View style={styles.progressBarBg}>
-                   <View style={[styles.progressBarFill, {backgroundColor: '#4A90E2', width: `${readingAvg}%`}]} />
-               </View>
-            </View>
+                   <View style={styles.progressBarBg}>
+                       <View style={[styles.progressBarFill, {backgroundColor: '#4A90E2', width: `${readingAvg}%`}]} />
+                   </View>
+                </View>
 
-            <View>
-               <View style={styles.breakdownHeader}>
-                   <View style={styles.row}>
-                       <PenTool size={18} stroke="#4B5563" />
-                       <Text style={styles.breakdownLabel}>Writing</Text>
+                <View>
+                   <View style={styles.breakdownHeader}>
+                       <View style={styles.row}>
+                           <PenTool size={18} stroke="#4B5563" />
+                           <Text style={styles.breakdownLabel}>Writing</Text>
+                       </View>
+                       <Text style={[styles.breakdownScore, {color: '#10B981'}]}>{writingAvg}%</Text>
                    </View>
-                   <Text style={[styles.breakdownScore, {color: '#10B981'}]}>{writingAvg}%</Text>
-               </View>
-               <View style={styles.progressBarBg}>
-                   <View style={[styles.progressBarFill, {backgroundColor: '#10B981', width: `${writingAvg}%`}]} />
-               </View>
-            </View>
+                   <View style={styles.progressBarBg}>
+                       <View style={[styles.progressBarFill, {backgroundColor: '#10B981', width: `${writingAvg}%`}]} />
+                   </View>
+                </View>
 
-            <View>
-               <View style={styles.breakdownHeader}>
-                   <View style={styles.row}>
-                       <Type size={18} stroke="#4B5563" />
-                       <Text style={styles.breakdownLabel}>Spelling</Text>
+                <View>
+                   <View style={styles.breakdownHeader}>
+                       <View style={styles.row}>
+                           <Type size={18} stroke="#4B5563" />
+                           <Text style={styles.breakdownLabel}>Spelling</Text>
+                       </View>
+                       <Text style={[styles.breakdownScore, {color: '#8B5CF6'}]}>{spellingAvg}%</Text>
                    </View>
-                   <Text style={[styles.breakdownScore, {color: '#8B5CF6'}]}>{spellingAvg}%</Text>
-               </View>
-               <View style={styles.progressBarBg}>
-                   <View style={[styles.progressBarFill, {backgroundColor: '#8B5CF6', width: `${spellingAvg}%`}]} />
-               </View>
-            </View>
-
-            {/* Memory Added */}
-            <View>
-               <View style={styles.breakdownHeader}>
-                   <View style={styles.row}>
-                       <Zap size={18} stroke="#4B5563" />
-                       <Text style={styles.breakdownLabel}>Memory (Activity Avg)</Text>
+                   <View style={styles.progressBarBg}>
+                       <View style={[styles.progressBarFill, {backgroundColor: '#8B5CF6', width: `${spellingAvg}%`}]} />
                    </View>
-                   <Text style={[styles.breakdownScore, {color: '#F59E0B'}]}>{memoryAvg}%</Text>
-               </View>
-               <View style={styles.progressBarBg}>
-                   <View style={[styles.progressBarFill, {backgroundColor: '#F59E0B', width: `${memoryAvg}%`}]} />
-               </View>
-            </View>
-         </View>
-      </View>
+                </View>
+             </View>
+          </View>
+      )}
       
       <View style={styles.insightsCard}>
         <Shield size={24} stroke="#2563EB" />
         <View style={{flex: 1}}>
             <Text style={styles.insightsTitle}>AI Insights for {childName}</Text>
-            <Text style={styles.insightsText}>
-            Based on the initial assessment, {childName} shows strength in {focusAreas[2]?.name} but needs more practice in {focusAreas[0]?.name}. 
-            The system has adjusted the difficulty to {currentDifficulty} to optimize their learning curve.
-            </Text>
+            {focusAreas.length > 0 ? (
+                <Text style={styles.insightsText}>
+                Based on the assessment, {childName} shows strength in {focusAreas[2]?.name} but needs more practice in {focusAreas[0]?.name}. 
+                Difficulty is set to {currentDifficulty}.
+                </Text>
+            ) : (
+                <Text style={styles.insightsText}>
+                    Please complete the initial assessment to view AI-driven insights and focus areas.
+                </Text>
+            )}
         </View>
       </View>
     </ScrollView>
@@ -344,11 +341,21 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 24,
   },
-  cardSubtitle: {
-    fontSize: 12,
+  emptyStateBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    gap: 16,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#9CA3AF',
-    marginBottom: 24,
-    marginTop: -16,
+  },
+  emptyStateSub: {
+    textAlign: 'center',
+    color: '#9CA3AF',
+    lineHeight: 20,
   },
   row: {
     flexDirection: 'row',

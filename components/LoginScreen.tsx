@@ -1,16 +1,17 @@
 
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Modal, Pressable, StyleSheet } from 'react-native';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
-import { Brain, Lock, Mail, AlertCircle, User, Users, ClipboardList, ChevronDown } from 'lucide-react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Modal, Pressable, Alert, StyleSheet } from 'react-native';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from '../firebaseConfig';
+import { Brain, Lock, Mail, AlertCircle, Users, ClipboardList, ChevronDown, ShieldCheck } from 'lucide-react-native';
+import { Difficulty } from '../types';
 
 interface LoginProps {
-  onDemoLogin?: (role: 'Guardian' | 'Admin') => void;
   onSignUpClick?: () => void;
+  onLoginSuccess: () => void; // New prop for manual navigation trigger
 }
 
-export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }) => {
+export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'Guardian' | 'Admin'>('Guardian');
@@ -19,28 +20,108 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
   const [roleModalVisible, setRoleModalVisible] = useState(false);
 
   const handleLogin = async () => {
+    if (!email || !password) {
+      setError("Please enter both email and password.");
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // App.tsx auth listener will handle the rest
+      // 1. Authenticate with Firebase Auth
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      // 2. Fetch User Profile to verify Role
+      const userDocRef = doc(db, "users", uid);
+      const userSnap = await getDoc(userDocRef);
+
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        const dbRole = userData.role || 'Guardian';
+
+        // 3. Strict Role Check
+        if (dbRole !== role) {
+          // Role mismatch: Force logout
+          await signOut(auth);
+          setError(`Access Denied. You are registered as a ${dbRole}, but tried to log in as ${role === 'Admin' ? 'an Administrator' : 'a Guardian'}.`);
+          setLoading(false);
+          return;
+        }
+
+        // Role matches -> Call onLoginSuccess to tell App.tsx to navigate
+        onLoginSuccess();
+        
+      } else {
+        // Edge case: User in Auth but not in Firestore
+        await signOut(auth);
+        setError("Account data not found. Please contact support.");
+      }
+
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential') {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('Invalid email or password.');
       } else if (err.code === 'auth/invalid-email') {
         setError('Please enter a valid email address.');
       } else {
         setError('Failed to log in. Please check your connection.');
       }
-      setLoading(false);
+    } finally {
+      // If successful, loading stays true until App.tsx unmounts this screen
+      // If error, we set loading false here
+      if (auth.currentUser === null) {
+        setLoading(false);
+      }
     }
   };
 
-  const handleDemo = () => {
-    if (onDemoLogin) {
-      onDemoLogin(role);
+  // Function to create/ensure Admin account exists in Auth and Firestore
+  const handleSeedAdmin = async () => {
+    setLoading(true);
+    setError('');
+    const adminEmail = "admin@lexilearn.com";
+    const adminPass = "admin123";
+
+    const adminProfile = {
+        email: adminEmail,
+        role: 'Admin',
+        status: 'APPROVED',
+        childName: 'System Admin',
+        assessmentComplete: true,
+        assignedDifficulty: Difficulty.MILD,
+        progressHistory: []
+    };
+
+    try {
+        // 1. Try to Create User
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, adminEmail, adminPass);
+            // If successful, write to Firestore
+            await setDoc(doc(db, "users", userCredential.user.uid), {
+                ...adminProfile,
+                uid: userCredential.user.uid
+            });
+            Alert.alert("Success", "Admin account created! Logging in...");
+        } catch (createError: any) {
+            // 2. If exists, Try to Login
+            if (createError.code === 'auth/email-already-in-use') {
+                const userCredential = await signInWithEmailAndPassword(auth, adminEmail, adminPass);
+                // Update Firestore to ensure they have Admin role
+                await setDoc(doc(db, "users", userCredential.user.uid), {
+                    ...adminProfile,
+                    uid: userCredential.user.uid
+                }, { merge: true });
+                console.log("Admin logged in and profile updated.");
+            } else {
+                throw createError;
+            }
+        }
+    } catch (err: any) {
+        console.error("Seed Admin Error:", err);
+        Alert.alert("Error", err.message || "Could not initialize admin.");
+        setLoading(false); 
     }
   };
 
@@ -49,7 +130,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
       <View style={styles.card}>
         <View style={styles.header}>
           <View style={styles.logoContainer}>
-            <Brain size={48} color="#4A90E2" />
+            <Brain size={48} stroke="#4A90E2" />
           </View>
           <Text style={styles.title}>LexiLearn</Text>
           <Text style={styles.subtitle}>Dyslexia Support Platform</Text>
@@ -58,23 +139,25 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
         <View style={styles.form}>
           {error ? (
             <View style={styles.errorBox}>
-              <AlertCircle size={20} color="#DC2626" />
+              <AlertCircle size={20} stroke="#DC2626" />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
           {/* Category Picker */}
           <View>
-            <Text style={styles.label}>User Category</Text>
+            <Text style={styles.label}>Log in as:</Text>
             <TouchableOpacity 
               onPress={() => setRoleModalVisible(true)}
-              style={styles.inputContainer}
+              style={[styles.inputContainer, { borderColor: role === 'Admin' ? '#4A90E2' : '#E5E7EB' }]}
             >
               <View style={styles.iconPos}>
-                <Users size={20} color="#9CA3AF" />
+                {role === 'Admin' ? <ShieldCheck size={20} stroke="#4A90E2" /> : <Users size={20} stroke="#9CA3AF" />}
               </View>
-              <Text style={styles.inputText}>{role === 'Guardian' ? 'Guardian' : 'Administrator'}</Text>
-              <ChevronDown size={20} color="#9CA3AF" />
+              <Text style={[styles.inputText, role === 'Admin' && { fontWeight: 'bold', color: '#4A90E2' }]}>
+                {role === 'Guardian' ? 'Guardian / Student' : 'Administrator'}
+              </Text>
+              <ChevronDown size={20} stroke="#9CA3AF" />
             </TouchableOpacity>
           </View>
 
@@ -82,10 +165,13 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
           <Modal visible={roleModalVisible} transparent animationType="fade">
             <Pressable onPress={() => setRoleModalVisible(false)} style={styles.modalOverlay}>
                <View style={styles.modalContent}>
+                  <Text style={styles.modalHeader}>Select Account Type</Text>
                   <TouchableOpacity onPress={() => { setRole('Guardian'); setRoleModalVisible(false); }} style={styles.modalItem}>
-                    <Text style={styles.modalText}>Guardian</Text>
+                    <Users size={24} stroke="#4B5563" style={{marginRight: 12}} />
+                    <Text style={styles.modalText}>Guardian / Student</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setRole('Admin'); setRoleModalVisible(false); }} style={styles.modalItem}>
+                  <TouchableOpacity onPress={() => { setRole('Admin'); setRoleModalVisible(false); }} style={[styles.modalItem, {borderBottomWidth: 0}]}>
+                    <ShieldCheck size={24} stroke="#4A90E2" style={{marginRight: 12}} />
                     <Text style={styles.modalText}>Administrator</Text>
                   </TouchableOpacity>
                </View>
@@ -96,7 +182,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
             <Text style={styles.label}>Email Address</Text>
             <View style={styles.inputWrapper}>
               <View style={styles.iconPos}>
-                <Mail size={20} color="#9CA3AF" />
+                <Mail size={20} stroke="#9CA3AF" />
               </View>
               <TextInput 
                 value={email}
@@ -114,7 +200,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
             <Text style={styles.label}>Password</Text>
             <View style={styles.inputWrapper}>
                <View style={styles.iconPos}>
-                 <Lock size={20} color="#9CA3AF" />
+                 <Lock size={20} stroke="#9CA3AF" />
                </View>
               <TextInput 
                 value={password}
@@ -141,23 +227,18 @@ export const LoginScreen: React.FC<LoginProps> = ({ onDemoLogin, onSignUpClick }
              onPress={onSignUpClick}
              style={styles.signUpButton}
            >
-              <ClipboardList size={20} color="#7E22CE" /> 
+              <ClipboardList size={20} stroke="#7E22CE" /> 
               <Text style={styles.signUpText}>Don't have an account? Apply Here</Text>
            </TouchableOpacity>
         </View>
 
-        <View style={styles.dividerContainer}>
-          <View style={styles.divider} />
-          <Text style={styles.dividerText}>or test without account</Text>
-          <View style={styles.divider} />
-        </View>
-
+        {/* Seed Admin Button */}
         <TouchableOpacity 
-          onPress={handleDemo}
-          style={styles.demoButton}
+          onPress={handleSeedAdmin}
+          style={styles.seedButton}
         >
-          <User size={20} color="#66BB6A" />
-          <Text style={styles.demoButtonText}>Try Demo {role} Account</Text>
+          <ShieldCheck size={18} stroke="#4B5563" />
+          <Text style={styles.seedButtonText}>Initialize Admin Account</Text>
         </TouchableOpacity>
 
         <Text style={styles.footerText}>
@@ -272,13 +353,24 @@ const styles = StyleSheet.create({
     maxWidth: 384,
     overflow: 'hidden',
   },
-  modalItem: {
-    padding: 16,
+  modalHeader: {
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#9CA3AF',
+    paddingVertical: 12,
+    backgroundColor: '#F9FAFB',
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
+  modalItem: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   modalText: {
-    textAlign: 'center',
     fontWeight: 'bold',
     fontSize: 18,
     color: '#374151',
@@ -338,40 +430,21 @@ const styles = StyleSheet.create({
     color: '#7E22CE',
     fontWeight: 'bold',
   },
-  dividerContainer: {
-    marginVertical: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    flex: 1,
-  },
-  dividerText: {
-    color: '#9CA3AF',
-    fontSize: 14,
-  },
-  demoButton: {
-    width: '100%',
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#66BB6A',
-    borderRadius: 12,
+  seedButton: {
+    marginTop: 32,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    padding: 12,
   },
-  demoButtonText: {
-    color: '#66BB6A',
-    fontWeight: 'bold',
-    fontSize: 18,
+  seedButtonText: {
+    color: '#6B7280',
+    fontSize: 14,
+    textDecorationLine: 'underline',
   },
   footerText: {
-    marginTop: 32,
+    marginTop: 16,
     textAlign: 'center',
     fontSize: 14,
     color: '#9CA3AF',

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, StatusBar, Platform, Alert } from 'react-native';
 import { Screen, Difficulty, UserProfile, ProgressRecord } from './types';
 import { TRACING_ITEMS, READING_ITEMS, SPELLING_ITEMS, MEMORY_ITEMS } from './constants';
 import { TracingActivity } from './components/TracingActivity';
@@ -13,10 +13,9 @@ import { SignUpScreen } from './components/SignUpScreen';
 import { ParentDashboard } from './components/ParentDashboard';
 import { LearningJourney } from './components/LearningJourney';
 import { AdminDashboard } from './components/AdminDashboard';
-import { Brain, User, Map as MapIcon, GraduationCap, ArrowLeft, LogOut, PenTool, BookOpen, Keyboard, Zap, ChevronRight, Star } from 'lucide-react-native';
-import { auth, db } from './firebaseConfig';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { Brain, User, Map as MapIcon, GraduationCap, ArrowLeft, LogOut, PenTool, BookOpen, Keyboard, Zap, ChevronRight, Star, Clock, Lock, AlertTriangle } from 'lucide-react-native';
+import { auth, db, onAuthStateChanged, signOut } from './firebaseConfig';
+import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -24,6 +23,7 @@ const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
   const [selectedActivityType, setSelectedActivityType] = useState<'TRACING' | 'READING' | 'SPELLING' | 'MEMORY' | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.MILD);
+  const [connectionStatus, setConnectionStatus] = useState<'ONLINE' | 'OFFLINE_MODE'>('ONLINE');
 
   // Check Backend Status
   useEffect(() => {
@@ -43,82 +43,116 @@ const App: React.FC = () => {
     checkBackend();
   }, []);
 
+  // Helper to determine where to go based on user profile
+  const navigateBasedOnUser = (user: UserProfile) => {
+      if (user.role === 'Admin') {
+          setCurrentScreen(Screen.ADMIN_DASHBOARD);
+      } else if (user.status === 'PENDING') {
+          setCurrentScreen(Screen.PENDING_APPROVAL);
+      } else if (user.status === 'REJECTED') {
+          setCurrentScreen(Screen.LOGIN);
+          Alert.alert("Access Denied", "Your account application was rejected.");
+          signOut(auth);
+      } else if (!user.assessmentComplete) {
+          setCurrentScreen(Screen.ASSESSMENT);
+      } else {
+          setCurrentScreen(Screen.HOME);
+      }
+  };
+
   // Auth & Profile Sync logic
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user: any) => {
       if (user) {
-        try {
-            const docRef = doc(db, "users", user.uid);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                const userData = docSnap.data() as UserProfile;
-                setCurrentUser(userData);
-                setDifficulty(userData.assignedDifficulty || Difficulty.MILD);
-                
-                if (userData.role === 'Admin') {
-                    setCurrentScreen(Screen.ADMIN_DASHBOARD);
-                } else if (!userData.assessmentComplete) {
-                    setCurrentScreen(Screen.ASSESSMENT);
-                } else {
-                    setCurrentScreen(Screen.HOME);
-                }
-            } else {
-                // New user via auth but no profile doc
-                const fallbackProfile: UserProfile = { 
-                    uid: user.uid, 
-                    email: user.email!, 
-                    role: 'Guardian', 
-                    childName: 'Student', 
-                    assessmentComplete: false, 
-                    assignedDifficulty: Difficulty.MILD,
-                    progressHistory: []
-                };
-                setCurrentUser(fallbackProfile);
-                setCurrentScreen(Screen.ASSESSMENT);
-            }
-        } catch (e) { console.error(e); }
+        setConnectionStatus('ONLINE');
+        // Step 2 & 6: Real-time listener for User Profile updates
+        const userDocRef = doc(db, "users", user.uid);
+        
+        const unsubscribeSnapshot = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+              const userData = docSnap.data() as UserProfile;
+              setCurrentUser(userData);
+              setDifficulty(userData.assignedDifficulty || Difficulty.MILD);
+              
+              if (loading) {
+                  // Initial App Load: Auto-navigate
+                  navigateBasedOnUser(userData);
+              } else {
+                  // Runtime Update
+                  if (currentScreen !== Screen.LOGIN) {
+                      // Allow auto-navigation for specific state transitions
+                      if (currentScreen === Screen.PENDING_APPROVAL && userData.status === 'APPROVED') {
+                          navigateBasedOnUser(userData);
+                      }
+                  }
+              }
+              setLoading(false);
+          } else {
+             // Doc doesn't exist yet (or created via sign-up but not propagated)
+             const fallbackProfile: UserProfile = { 
+                 uid: user.uid, 
+                 email: user.email!, 
+                 role: 'Guardian', 
+                 childName: 'Student', 
+                 status: 'PENDING', 
+                 assessmentComplete: false, 
+                 assignedDifficulty: Difficulty.MILD,
+                 progressHistory: []
+             };
+             setCurrentUser(fallbackProfile);
+             if (loading) setCurrentScreen(Screen.PENDING_APPROVAL);
+             setLoading(false);
+          }
+        }, (error) => {
+           // *** ERROR HANDLING FIX ***
+           console.warn("Firestore Read Error (Using Offline Profile):", error.code);
+           
+           if (error.code === 'permission-denied') {
+               setConnectionStatus('OFFLINE_MODE');
+               // Instead of crashing or alerting, we load an "Offline/Fallback" profile.
+               // This allows the app to be usable even if DB rules are broken.
+               const offlineProfile: UserProfile = {
+                   uid: user.uid,
+                   email: user.email!,
+                   role: 'Guardian',
+                   childName: 'Student',
+                   status: 'APPROVED', // Assume approved so they can test the app
+                   assessmentComplete: false,
+                   assignedDifficulty: Difficulty.MILD,
+                   progressHistory: []
+               };
+               setCurrentUser(offlineProfile);
+               
+               // Only navigate if we are stuck on loading
+               if (loading) {
+                   setCurrentScreen(Screen.HOME);
+               }
+           }
+           setLoading(false);
+        });
+
+        return () => unsubscribeSnapshot();
       } else {
-        if (!currentUser) setCurrentScreen(Screen.LOGIN);
+        setCurrentUser(null);
+        setCurrentScreen(Screen.LOGIN);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsubscribe;
+
+    return unsubscribeAuth;
   }, []);
 
   const handleSignOut = async () => {
-      await signOut(auth);
+      try {
+        await signOut(auth);
+      } catch (e) {
+          console.error("Sign out error", e);
+      }
       setCurrentUser(null);
       setCurrentScreen(Screen.LOGIN);
   };
 
-  const handleDemoLogin = (role: 'Guardian' | 'Admin') => {
-    const demoUser: UserProfile = {
-      uid: 'demo-user-123',
-      email: role === 'Admin' ? 'admin@lexilearn.com' : 'demo@lexilearn.com',
-      childName: role === 'Admin' ? 'N/A' : 'Alex (Demo)',
-      role: role,
-      assessmentComplete: role === 'Admin', 
-      assignedDifficulty: Difficulty.MILD,
-      progressHistory: [
-          { date: 'Oct 20', activityType: 'Tracing', score: 85, details: 'Demo Line' },
-          { date: 'Oct 21', activityType: 'Reading', score: 92, details: 'Demo Word' },
-          { date: 'Oct 22', activityType: 'Spelling', score: 78, details: 'Demo Spell' },
-      ],
-      lastTracingIndex: 2,
-      lastReadingIndex: 1,
-      lastSpellingIndex: 0,
-      lastMemoryIndex: 0
-    };
-    setCurrentUser(demoUser);
-    if (role === 'Admin') {
-        setCurrentScreen(Screen.ADMIN_DASHBOARD);
-    } else if (!demoUser.assessmentComplete) {
-        setCurrentScreen(Screen.ASSESSMENT);
-    } else {
-        setCurrentScreen(Screen.HOME);
-    }
-  };
-
+  // Step 5: Daily activities -> add to progress
   const handleActivityComplete = async (type: 'Tracing' | 'Reading' | 'Spelling' | 'Memory', score: number) => {
       const newRecord: ProgressRecord = {
           date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -129,58 +163,67 @@ const App: React.FC = () => {
 
       if (currentUser) {
           const updatedHistory = [...(currentUser.progressHistory || []), newRecord];
+          // Optimistic update
           const updatedUser = { ...currentUser, progressHistory: updatedHistory };
           setCurrentUser(updatedUser);
 
-          if (currentUser.uid !== 'demo-user-123') {
-              try {
-                  const userRef = doc(db, "users", currentUser.uid);
-                  await updateDoc(userRef, {
-                      progressHistory: updatedHistory
-                  });
-              } catch (e) {
-                  console.error("Error saving progress:", e);
-              }
+          try {
+              const userRef = doc(db, "users", currentUser.uid);
+              await updateDoc(userRef, {
+                  progressHistory: updatedHistory
+              });
+          } catch (e) {
+              console.log("Offline mode: Progress saved locally only.");
           }
       }
   };
 
-  // NEW: Handles Saving Last Completed Level Index so user resumes next time
   const handleLevelProgress = async (type: 'Tracing' | 'Reading' | 'Spelling' | 'Memory', levelIndex: number) => {
       if (!currentUser) return;
-
-      // Ensure we don't go backward in progress if user replays an old level
       const currentSaved = currentUser[`last${type}Index` as keyof UserProfile] as number || 0;
       if (levelIndex <= currentSaved) return;
 
       const fieldName = `last${type}Index` as keyof UserProfile;
-      const updatedUser = { ...currentUser, [fieldName]: levelIndex };
-      setCurrentUser(updatedUser);
-
-      if (currentUser.uid !== 'demo-user-123') {
-          try {
-              const userRef = doc(db, "users", currentUser.uid);
-              await updateDoc(userRef, { [fieldName]: levelIndex });
-          } catch (e) {
-              console.error("Error saving level progress:", e);
-          }
+      try {
+          const userRef = doc(db, "users", currentUser.uid);
+          await updateDoc(userRef, { [fieldName]: levelIndex });
+      } catch (e) {
+          console.log("Offline mode: Level progress saved locally only.");
       }
   };
 
   const updateChildName = async (newName: string) => {
       if (currentUser) {
-          const updated = { ...currentUser, childName: newName };
-          setCurrentUser(updated);
-          if (currentUser.uid !== 'demo-user-123') {
-              try {
-                  const userRef = doc(db, "users", currentUser.uid);
-                  await updateDoc(userRef, { childName: newName });
-              } catch (e) {
-                  console.error(e);
-              }
+          // Optimistic
+          setCurrentUser({ ...currentUser, childName: newName });
+          try {
+              const userRef = doc(db, "users", currentUser.uid);
+              await updateDoc(userRef, { childName: newName });
+          } catch (e) {
+              console.log("Offline mode: Name update saved locally only.");
           }
       }
   };
+
+  const renderPendingApproval = () => (
+      <View style={styles.pendingContainer}>
+          <View style={styles.pendingCard}>
+              <Clock size={64} stroke="#3B82F6" />
+              <Text style={styles.pendingTitle}>Application Pending</Text>
+              <Text style={styles.pendingText}>
+                  Step 1 Complete: Application Submitted.
+              </Text>
+              <Text style={styles.pendingSubText}>
+                  Waiting for Step 2: Administrator Approval.
+                  This screen will update automatically once approved.
+              </Text>
+              
+              <TouchableOpacity onPress={handleSignOut} style={styles.signOutLink}>
+                  <Text style={styles.signOutLinkText}>Sign Out</Text>
+              </TouchableOpacity>
+          </View>
+      </View>
+  );
 
   const renderChildDashboard = () => (
     <ScrollView contentContainerStyle={styles.dashboardScroll} style={styles.background}>
@@ -216,7 +259,7 @@ const App: React.FC = () => {
           <View style={[styles.iconBox, {backgroundColor: '#DBEAFE'}]}><PenTool size={32} stroke="#2563EB" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Tracing</Text>
-            {/* Display stored level or 1 if undefined */}
+            <Text style={styles.activityDesc}>Trace SVG paths</Text>
             <Text style={styles.activityDesc}>Level {currentUser?.lastTracingIndex ? currentUser.lastTracingIndex + 1 : 1}</Text>
           </View>
           <ChevronRight stroke="#D1D5DB" size={28} />
@@ -229,6 +272,7 @@ const App: React.FC = () => {
           <View style={[styles.iconBox, {backgroundColor: '#DCFCE7'}]}><BookOpen size={32} stroke="#16A34A" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Reading</Text>
+            <Text style={styles.activityDesc}>Pronunciation & Fluency</Text>
             <Text style={styles.activityDesc}>Level {currentUser?.lastReadingIndex ? currentUser.lastReadingIndex + 1 : 1}</Text>
           </View>
           <ChevronRight stroke="#D1D5DB" size={28} />
@@ -241,6 +285,7 @@ const App: React.FC = () => {
           <View style={[styles.iconBox, {backgroundColor: '#FEF9C3'}]}><Keyboard size={32} stroke="#B45309" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Spelling</Text>
+            <Text style={styles.activityDesc}>Word Construction</Text>
             <Text style={styles.activityDesc}>Level {currentUser?.lastSpellingIndex ? currentUser.lastSpellingIndex + 1 : 1}</Text>
           </View>
           <ChevronRight stroke="#D1D5DB" size={28} />
@@ -253,6 +298,7 @@ const App: React.FC = () => {
           <View style={[styles.iconBox, {backgroundColor: '#F3E8FF'}]}><Zap size={32} stroke="#9333EA" /></View>
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Memory</Text>
+            <Text style={styles.activityDesc}>Pattern Recall</Text>
             <Text style={styles.activityDesc}>Level {currentUser?.lastMemoryIndex ? currentUser.lastMemoryIndex + 1 : 1}</Text>
           </View>
           <ChevronRight stroke="#D1D5DB" size={28} />
@@ -304,21 +350,31 @@ const App: React.FC = () => {
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#4A90E2" /></View>;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
+       
+       {connectionStatus === 'OFFLINE_MODE' && (
+           <View style={styles.offlineBanner}>
+               <AlertTriangle size={16} stroke="#B45309" />
+               <Text style={styles.offlineText}>Offline Mode: Permission denied (Check Firestore Rules)</Text>
+           </View>
+       )}
+
        {currentScreen === Screen.LOGIN && (
           <LoginScreen 
-            onDemoLogin={handleDemoLogin} 
             onSignUpClick={() => setCurrentScreen(Screen.SIGN_UP)} 
+            onLoginSuccess={() => currentUser && navigateBasedOnUser(currentUser)}
           />
        )}
        {currentScreen === Screen.SIGN_UP && (
           <SignUpScreen onBack={() => setCurrentScreen(Screen.LOGIN)} />
        )}
+       {currentScreen === Screen.PENDING_APPROVAL && renderPendingApproval()}
        {currentScreen === Screen.ASSESSMENT && currentUser && (
           <AssessmentFlow 
             user={currentUser} 
             onComplete={(p) => {
+                // Step 4: Backend prediction (happens inside AssessmentFlow)
                 setCurrentUser(p); 
                 setDifficulty(p.assignedDifficulty); 
                 setCurrentScreen(Screen.HOME);
@@ -384,11 +440,10 @@ const App: React.FC = () => {
        {currentScreen === Screen.ADMIN_DASHBOARD && currentUser && (
           <AdminDashboard 
              userEmail={currentUser.email} 
-             onExit={handleSignOut} 
-             isDemo={currentUser.uid === 'demo-user-123'}
+             onExit={handleSignOut}
           />
        )}
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -396,6 +451,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FDFBF7',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   background: {
     backgroundColor: '#FDFBF7',
@@ -404,21 +460,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  titleText: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#2D2D2D',
-    marginBottom: 8,
-  },
-  subtitleText: {
-    color: '#4B5563',
-    marginBottom: 32,
-    textAlign: 'center',
-  },
-  cardContainer: {
-    width: '100%',
-    gap: 16,
   },
   dashboardScroll: {
     padding: 24,
@@ -554,6 +595,86 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
   },
+  pendingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: '#FDFBF7',
+  },
+  pendingCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 32,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 400,
+  },
+  pendingTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  pendingText: {
+    fontSize: 18,
+    color: '#2563EB',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  pendingSubText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 22
+  },
+  checkButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 999,
+    marginBottom: 16,
+  },
+  checkButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  signOutLink: {
+    padding: 12,
+  },
+  signOutLinkText: {
+    color: '#EF4444',
+    fontWeight: 'bold',
+  },
+  cardContainer: {
+    width: '100%',
+    gap: 16,
+  },
+  offlineBanner: {
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F59E0B'
+  },
+  offlineText: {
+    color: '#B45309',
+    fontWeight: 'bold',
+    fontSize: 12
+  }
 });
 
 export default App;

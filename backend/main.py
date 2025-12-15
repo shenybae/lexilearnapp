@@ -21,7 +21,7 @@ app = FastAPI(title="Dyslexia Focus Prediction API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # Or list your frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,6 +65,13 @@ def get_focus_areas(student_dict):
         {"name": sorted_areas[2][0], "score": round(sorted_areas[2][1], 2)}
     ]
     return focus_areas
+
+
+
+@app.get("/")
+def root():
+    return {"message": "Backend is running!"}
+
 
 # -------------------------------
 # Prediction endpoint

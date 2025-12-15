@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { Shield, Lock, ArrowRight, RefreshCw, LogOut } from 'lucide-react-native';
 
 interface TwoFactorProps {
@@ -52,67 +52,211 @@ export const TwoFactorAuth: React.FC<TwoFactorProps> = ({ email, onVerify, onCan
   };
 
   return (
-    <View className="flex-1 items-center justify-center bg-pastel-cream p-4">
-      <View className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md border-2 border-brand-primary/20">
-        <View className="items-center mb-6">
-          <View className="w-20 h-20 bg-blue-100 rounded-full items-center justify-center mb-4">
-            <Shield size={40} color="#4A90E2" />
+    <View style={styles.container}>
+      <View style={styles.card}>
+        <View style={styles.header}>
+          <View style={styles.iconCircle}>
+            <Shield size={40} stroke="#4A90E2" />
           </View>
-          <Text className="text-2xl font-bold text-dyslexia-text text-center">Two-Factor Authentication</Text>
-          <Text className="text-gray-500 text-center mt-2">
-            To secure your account, please enter the 6-digit code sent to <Text className="font-bold text-gray-700">{email}</Text>
+          <Text style={styles.title}>Two-Factor Authentication</Text>
+          <Text style={styles.subtitle}>
+            To secure your account, please enter the 6-digit code sent to <Text style={styles.emailText}>{email}</Text>
           </Text>
         </View>
 
-        <View className="space-y-6">
+        <View style={styles.form}>
           <View>
-            <Text className="text-sm font-bold text-gray-700 mb-2">Verification Code</Text>
-            <View className="relative justify-center">
-              <Lock className="absolute left-4 z-10" size={20} color="#9CA3AF" />
+            <Text style={styles.label}>Verification Code</Text>
+            <View style={styles.inputContainer}>
+              <Lock style={styles.inputIcon} size={20} stroke="#9CA3AF" />
               <TextInput 
                 value={code}
                 onChangeText={(t) => setCode(t.replace(/[^0-9]/g, '').slice(0, 6))}
-                className="w-full pl-12 pr-4 py-3 rounded-xl border-2 border-gray-200 text-center text-2xl font-bold tracking-widest bg-white"
+                style={styles.input}
                 placeholder="000000"
                 keyboardType="number-pad"
                 maxLength={6}
                 autoFocus
               />
             </View>
-            {error ? <Text className="text-red-500 text-sm mt-2 font-bold text-center">{error}</Text> : null}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
 
           <TouchableOpacity 
             onPress={handleSubmit}
             disabled={isLoading || code.length < 6}
-            className={`w-full py-4 bg-brand-primary rounded-xl shadow-lg flex-row items-center justify-center gap-2 ${isLoading || code.length < 6 ? 'opacity-50' : ''}`}
+            style={[styles.verifyButton, (isLoading || code.length < 6) && styles.disabledButton]}
           >
-            <Text className="text-white font-bold text-lg">{isLoading ? 'Verifying...' : 'Verify'}</Text>
-            {!isLoading && <ArrowRight size={20} color="#FFF" />}
+            <Text style={styles.verifyButtonText}>{isLoading ? 'Verifying...' : 'Verify'}</Text>
+            {!isLoading && <ArrowRight size={20} stroke="#FFF" />}
           </TouchableOpacity>
         </View>
 
-        <View className="mt-6 items-center gap-4">
+        <View style={styles.footer}>
           <TouchableOpacity 
             onPress={handleResend}
             disabled={timer > 0}
-            className="flex-row items-center gap-2"
+            style={styles.resendButton}
           >
-            <RefreshCw size={16} color={timer > 0 ? '#9CA3AF' : '#4A90E2'} />
-            <Text className={`font-bold text-sm ${timer > 0 ? 'text-gray-400' : 'text-brand-primary'}`}>
+            <RefreshCw size={16} stroke={timer > 0 ? '#9CA3AF' : '#4A90E2'} />
+            <Text style={[styles.resendText, timer > 0 ? styles.textGray : styles.textBlue]}>
                  {timer > 0 ? `Resend Code in ${timer}s` : 'Resend Code'}
             </Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
             onPress={onCancel}
-            className="flex-row items-center gap-2"
+            style={styles.cancelButton}
           >
-            <LogOut size={16} color="#6B7280" />
-            <Text className="text-gray-500 font-semibold text-sm">Cancel & Log Out</Text>
+            <LogOut size={16} stroke="#6B7280" />
+            <Text style={styles.cancelText}>Cancel & Log Out</Text>
           </TouchableOpacity>
         </View>
       </View>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FDFBF7',
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    padding: 32,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 2,
+    borderColor: 'rgba(74, 144, 226, 0.2)',
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  iconCircle: {
+    width: 80,
+    height: 80,
+    backgroundColor: '#DBEAFE',
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    textAlign: 'center',
+  },
+  subtitle: {
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  emailText: {
+    fontWeight: 'bold',
+    color: '#374151',
+  },
+  form: {
+    gap: 24,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  inputContainer: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  inputIcon: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+  },
+  input: {
+    width: '100%',
+    paddingLeft: 48,
+    paddingRight: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    letterSpacing: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  verifyButton: {
+    width: '100%',
+    paddingVertical: 16,
+    backgroundColor: '#4A90E2',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  verifyButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  footer: {
+    marginTop: 24,
+    alignItems: 'center',
+    gap: 16,
+  },
+  resendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  resendText: {
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  textGray: {
+    color: '#9CA3AF',
+  },
+  textBlue: {
+    color: '#4A90E2',
+  },
+  cancelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cancelText: {
+    color: '#6B7280',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+});
