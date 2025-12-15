@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet, StatusBar, Platform } from 'react-native';
 import { Screen, Difficulty, UserProfile, ProgressRecord } from './types';

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Pressable, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { Brain, Mail, User, Baby, ArrowLeft, CheckCircle, Send, Activity, ChevronDown } from 'lucide-react-native';

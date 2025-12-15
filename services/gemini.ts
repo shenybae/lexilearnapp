@@ -1,90 +1,41 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { PronunciationResult } from '../types';
-import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
 
-// --- CONFIGURATION ---
-const HF_ACCESS_TOKEN = process.env.HF_ACCESS_TOKEN;
-
-// Primary Model (User Preferred)
-const HF_MODEL_URL = "https://api-inference.huggingface.co/models/sesefi/LexiReading-pronunciation";
-
-// Use the user-provided key as fallback if process.env isn't set
-const GEMINI_API_KEY = process.env.API_KEY;
+// Access the API key. 
+// In Expo, variables must start with EXPO_PUBLIC_ to be visible in the client.
+const API_KEY = process.env.EXPO_PUBLIC_API_KEY || process.env.API_KEY;
 
 // Initialize Gemini Client
 const getAiClient = () => {
-  return new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-};
-
-// --- HUGGING FACE SERVICE ---
-
-const fetchWithRetry = async (url: string, audioBlob: Blob, attempt = 1): Promise<any> => {
-    console.log(`[HF] Attempt ${attempt} connecting to: ${url}`);
-    
-    try {
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${HF_ACCESS_TOKEN}`,
-                "Content-Type": audioBlob.type || "audio/m4a", // Ensure matches recording format (m4a)
-            },
-            body: audioBlob,
-        });
-
-        // Handle Model Loading (503)
-        if (response.status === 503) {
-            const errorData = await response.json();
-            const waitTime = errorData.estimated_time || 5;
-            console.log(`[HF] Model loading. Waiting ${waitTime}s...`);
-            if (attempt < 3) {
-                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-                return fetchWithRetry(url, audioBlob, attempt + 1);
-            }
-        }
-
-        return response;
-    } catch (error) {
-        console.warn(`[HF] Network/Fetch Error on attempt ${attempt}:`, error);
-        return null;
-    }
-};
-
-/**
- * Sends audio to Hugging Face Inference API for transcription.
- */
-const transcribeWithHuggingFace = async (audioUri: string): Promise<string | null> => {
-  try {
-    console.log(`\n--- [HF] Transcription Request ---`);
-    console.log(`[HF] Audio URI: ${audioUri}`);
-    
-    // Fetch file from local FS
-    const fileResponse = await fetch(audioUri);
-    const audioBlob = await fileResponse.blob();
-    console.log(`[HF] Audio Blob Size: ${audioBlob.size} bytes`);
-    console.log(`[HF] Audio Blob Type: ${audioBlob.type}`);
-
-    // Try Primary Model ONLY
-    const hfResponse = await fetchWithRetry(HF_MODEL_URL, audioBlob);
-
-    if (!hfResponse || !hfResponse.ok) {
-        const status = hfResponse ? hfResponse.status : "Network Error";
-        console.error(`[HF] Model Failed. Status: ${status}`);
-        return null;
-    }
-
-    const result = await hfResponse.json();
-    console.log("[HF] Result received:", JSON.stringify(result).substring(0, 100));
-    
-    if (result && result.text) {
-      return result.text;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error("[HF] Transcription Failed Exception:", error);
-    return null;
+  if (!API_KEY) {
+    console.error("Gemini API Key is missing. Please ensure EXPO_PUBLIC_API_KEY is set in your .env file.");
   }
+  return new GoogleGenAI({ apiKey: API_KEY });
+};
+
+// Helper to convert audio URI to Base64
+// Updated to use fetch/blob/FileReader which works on both Web and Native (Expo)
+// This avoids the deprecated expo-file-system readAsStringAsync method
+const uriToBase64 = async (uri: string): Promise<string> => {
+    try {
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64data = reader.result as string;
+                // Remove data url prefix if present (e.g. "data:audio/m4a;base64,")
+                const parts = base64data.split(',');
+                resolve(parts.length > 1 ? parts[1] : base64data);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        console.error("Error converting audio to base64:", error);
+        throw error;
+    }
 };
 
 // --- GEMINI SERVICES ---
@@ -92,80 +43,63 @@ const transcribeWithHuggingFace = async (audioUri: string): Promise<string | nul
 export const checkPronunciation = async (audioUri: string, targetWord: string): Promise<PronunciationResult> => {
   try {
     const ai = getAiClient();
-    
-    // STEP 1: Transcription
-    const transcript = await transcribeWithHuggingFace(audioUri);
+    const base64Audio = await uriToBase64(audioUri);
 
-    if (!transcript) {
-      console.log("[Service] Transcription failed.");
-      return {
-          score: 0,
-          isCorrect: false,
-          feedback: "Could not hear audio clearly. Please try again.",
-          transcript: ""
-      };
-    }
+    console.log(`[Gemini] Checking pronunciation for: "${targetWord}"`);
 
-    console.log(`[Service] Transcript: "${transcript}" -> Analysis...`);
-
-    // STEP 2: Gemini Analysis
-    const geminiResponse = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: {
             parts: [
                 {
-                    text: `You are a reading tutor for children with dyslexia.
-                    Target Word: "${targetWord}"
-                    Student said (Transcript): "${transcript}"
+                    inlineData: {
+                        mimeType: 'audio/m4a', // Hints to Gemini that this is AAC/M4A audio
+                        data: base64Audio
+                    }
+                },
+                {
+                    text: `You are a friendly reading tutor. Listen to the audio. The student is trying to say the word "${targetWord}". 
                     
-                    Task:
-                    1. Compare the student's transcript to the target word.
-                    2. If they match closely (ignoring small case/punctuation), give a high score (90-100).
-                    3. If they are different, explain the phonetic difference simply.
-                    4. Return a JSON object.`
+                    Analyze the pronunciation and return a JSON object with:
+                    - score (integer 0-100): Rate the pronunciation quality. 100 is perfect.
+                    - isCorrect (boolean): true if the score is > 70.
+                    - feedback (string): Short, encouraging feedback (max 10 words).
+                    - phoneticBreakdown (string): A simple phonetic representation of what the student said vs target (e.g. "You said 'Cat', target 'Bat'").
+                    - transcript (string): Transcribe exactly what you heard.`
                 }
             ]
         },
         config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              score: { type: Type.NUMBER },
-              feedback: { type: Type.STRING },
-              phoneticBreakdown: { type: Type.STRING }
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    score: { type: Type.INTEGER },
+                    isCorrect: { type: Type.BOOLEAN },
+                    feedback: { type: Type.STRING },
+                    phoneticBreakdown: { type: Type.STRING },
+                    transcript: { type: Type.STRING },
+                }
             }
-          }
         }
     });
 
-    const resultText = geminiResponse.text || "{}";
-    const result = JSON.parse(resultText);
-    
-    let feedback = result.feedback || "";
-    const score = result.score || 0;
-
-    if (!feedback) {
-        if (score >= 90) feedback = "Perfect pronunciation!";
-        else if (score >= 70) feedback = "Good job!";
-        else feedback = "Let's try that again.";
+    if (response.text) {
+        const result = JSON.parse(response.text);
+        console.log("[Gemini] Analysis result:", result);
+        return result;
     }
-
-    return {
-      score: score,
-      isCorrect: score >= 70,
-      feedback: feedback,
-      transcript: transcript,
-      phoneticBreakdown: result.phoneticBreakdown || targetWord
-    };
+    
+    throw new Error("No response from AI");
 
   } catch (error) {
     console.error("Analysis Error:", error);
     return {
       score: 0,
       isCorrect: false,
-      feedback: "Could not analyze audio. Please check connection.",
-      transcript: ""
+      feedback: "Could not analyze audio. Please try again.",
+      transcript: "",
+      phoneticBreakdown: ""
     };
   }
 };
@@ -173,26 +107,31 @@ export const checkPronunciation = async (audioUri: string, targetWord: string): 
 export const analyzeReadingAssessment = async (audioUri: string, targetText: string, durationSeconds: number): Promise<{ wpm: number, accuracy: number, transcript: string }> => {
   try {
     const ai = getAiClient();
-    
-    const transcript = await transcribeWithHuggingFace(audioUri);
-    
-    if (!transcript) {
-        return { wpm: 0, accuracy: 0, transcript: "" };
-    }
+    const base64Audio = await uriToBase64(audioUri);
 
-    const analysisResponse = await ai.models.generateContent({
+    console.log(`[Gemini] Analyzing reading assessment...`);
+
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: {
         parts: [
           {
-            text: `Assessment Analysis:
+            inlineData: {
+                mimeType: 'audio/m4a',
+                data: base64Audio
+            }
+          },
+          {
+            text: `You are a reading assessment tool. 
             Target Text: "${targetText}"
-            Student Read (Transcript): "${transcript}"
             
             Task:
-            1. Calculate reading accuracy (0-100) based on how many words matched the target.
-            2. Count the number of words read correctly.
-            3. Return JSON.`
+            1. Transcribe the audio provided.
+            2. Compare the transcription to the Target Text.
+            3. Calculate accuracy (percentage of words read correctly).
+            4. Count the number of correct words.
+            
+            Return JSON.`
           }
         ]
       },
@@ -201,25 +140,29 @@ export const analyzeReadingAssessment = async (audioUri: string, targetText: str
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            accuracy: { type: Type.NUMBER },
-            correctWordCount: { type: Type.NUMBER }
+            accuracy: { type: Type.INTEGER },
+            correctWordCount: { type: Type.INTEGER },
+            transcript: { type: Type.STRING }
           }
         }
       }
     });
 
-    const analysis = JSON.parse(analysisResponse.text || "{}");
+    const analysis = JSON.parse(response.text || "{}");
+    console.log("[Gemini] Assessment Result:", analysis);
+
     const minutes = durationSeconds / 60;
+    // Calculate WPM based on correct words over time
     const wpm = minutes > 0 ? Math.round((analysis.correctWordCount || 0) / minutes) : 0;
 
     return { 
       wpm: wpm, 
       accuracy: analysis.accuracy || 0, 
-      transcript: transcript 
+      transcript: analysis.transcript || "" 
     };
 
   } catch (error) {
     console.error("Reading Assessment Error:", error);
-    return { wpm: 0, accuracy: 0, transcript: "Error analyzing audio" };
+    return { wpm: 0, accuracy: 0, transcript: "Error analyzing assessment audio." };
   }
 };

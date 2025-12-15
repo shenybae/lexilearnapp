@@ -14,12 +14,12 @@ with open('best_dyslexia_focus_model_labels.pkl', 'rb') as f:
     label_encoder = pickle.load(f)
 
 # -------------------------------
-# Define FastAPI app
+# FastAPI app
 # -------------------------------
 app = FastAPI(title="Dyslexia Focus Prediction API")
 
 # -------------------------------
-# Define request body structure
+# Request body schema
 # -------------------------------
 class StudentFeatures(BaseModel):
     age: float
@@ -32,6 +32,30 @@ class StudentFeatures(BaseModel):
     phonetic_spelling: float
     irregular_word_spelling: float
     spelling_accuracy: float
+
+# -------------------------------
+# Helper: Identify focus areas
+# -------------------------------
+def get_focus_areas(student_dict):
+    """Return primary, secondary, tertiary focus areas based on lowest scores"""
+    reading_avg = np.mean([student_dict['reading_speed'], student_dict['reading_accuracy'], student_dict['reading_comprehension']])
+    writing_avg = np.mean([student_dict['writing_speed'], student_dict['writing_quality'], student_dict['grammar_sentence']])
+    spelling_avg = np.mean([student_dict['phonetic_spelling'], student_dict['irregular_word_spelling'], student_dict['spelling_accuracy']])
+
+    areas = {
+        "Reading": reading_avg,
+        "Writing": writing_avg,
+        "Spelling": spelling_avg
+    }
+
+    # Sort by ascending score (weakest first)
+    sorted_areas = sorted(areas.items(), key=lambda x: x[1])
+    focus_areas = [
+        {"name": sorted_areas[0][0], "score": round(sorted_areas[0][1], 2)},
+        {"name": sorted_areas[1][0], "score": round(sorted_areas[1][1], 2)},
+        {"name": sorted_areas[2][0], "score": round(sorted_areas[2][1], 2)}
+    ]
+    return focus_areas
 
 # -------------------------------
 # Prediction endpoint
@@ -55,18 +79,23 @@ def predict(student: StudentFeatures):
     # Scale features
     features_scaled = scaler.transform(features)
 
-    # Predict
-    pred_class_idx = model.predict(features_scaled)[0]
-    pred_class = label_encoder.inverse_transform([pred_class_idx])[0]
+    # Predict class
+    pred_idx = model.predict(features_scaled)[0]
+    pred_class = label_encoder.inverse_transform([pred_idx])[0]
 
-    # Probabilities
-    if hasattr(model, 'predict_proba'):
+    # Predict probabilities if available
+    if hasattr(model, "predict_proba"):
         probs = model.predict_proba(features_scaled)[0]
-        prob_dict = {cls: float(probs[i]) for i, cls in enumerate(label_encoder.classes_)}
+        prob_dict = {cls: round(float(probs[i]), 4) for i, cls in enumerate(label_encoder.classes_)}
     else:
         prob_dict = None
 
+    # Identify focus areas
+    student_dict = student.dict()
+    focus_areas = get_focus_areas(student_dict)
+
     return {
-        "predicted_class": pred_class,
-        "probabilities": prob_dict
+        "predicted_difficulty": pred_class,
+        "probabilities": prob_dict,
+        "focus_areas": focus_areas
     }
