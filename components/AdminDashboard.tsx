@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, StyleSheet, Linking } from 'react-native';
 import { GuardianApplication } from '../types';
 import { db, collection, query, getDocs, doc, updateDoc } from '../firebaseConfig';
-import { Shield, CheckCircle, XCircle, Clock, Search, LogOut, Mail, User, Baby, BookOpen, PenTool, Type, AlertCircle } from 'lucide-react-native';
+import { Shield, CheckCircle, XCircle, Clock, Search, LogOut, Mail, User, Baby, BookOpen, PenTool, Type, AlertCircle, RefreshCw } from 'lucide-react-native';
 
 interface AdminDashboardProps {
   userEmail: string;
@@ -139,12 +140,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
             <Text style={styles.headerSubtitle}>Logged in as {userEmail}</Text>
           </View>
         </View>
-        <TouchableOpacity 
-          onPress={onExit}
-          style={styles.logoutButton}
-        >
-          <LogOut size={20} {...({color: "#374151"} as any)} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+             <TouchableOpacity 
+              onPress={fetchApplications}
+              style={styles.refreshButton}
+            >
+              <RefreshCw size={20} {...({color: "#374151"} as any)} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={onExit}
+              style={styles.logoutButton}
+            >
+              <LogOut size={20} {...({color: "#374151"} as any)} />
+            </TouchableOpacity>
+        </View>
       </View>
 
       {error ? (
@@ -345,6 +354,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12
+  },
   shieldIcon: {
     backgroundColor: '#4A90E2',
     padding: 8,
@@ -358,6 +372,11 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 12,
     color: '#6B7280',
+  },
+  refreshButton: {
+    padding: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
   },
   logoutButton: {
     padding: 8,

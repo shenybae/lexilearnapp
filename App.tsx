@@ -67,6 +67,7 @@ const App: React.FC = () => {
       }
       setCurrentUser(null);
       setScreen(Screen.LOGIN);
+      previousStatusRef.current = null; // Reset status tracking
   };
 
   const navigateBasedOnUser = (user: UserProfile) => {
@@ -130,17 +131,25 @@ const App: React.FC = () => {
             const localData = await AsyncStorage.getItem(`user_profile_${user.uid}`);
             if (localData) {
                 const parsedUser = JSON.parse(localData) as UserProfile;
-                setCurrentUser(parsedUser);
-                setDifficulty(parsedUser.assignedDifficulty || Difficulty.MILD);
-                previousStatusRef.current = parsedUser.status;
-
+                
                 // IMPORTANT: If local data says PENDING, force logout immediately.
                 if (parsedUser.status === 'PENDING') {
-                    handleSignOut();
-                    setLoading(false);
-                    return; // Stop execution
-                } else if (loading || currentScreen === Screen.LOGIN) {
-                    navigateBasedOnUser(parsedUser);
+                    // CRITICAL: Allow Sign Up screen to process without interruption
+                    if (currentScreenRef.current !== Screen.SIGN_UP) {
+                         handleSignOut();
+                         setLoading(false);
+                         return;
+                    }
+                }
+
+                if (currentScreenRef.current !== Screen.SIGN_UP) {
+                    setCurrentUser(parsedUser);
+                    setDifficulty(parsedUser.assignedDifficulty || Difficulty.MILD);
+                    previousStatusRef.current = parsedUser.status;
+
+                    if (loading || currentScreen === Screen.LOGIN) {
+                        navigateBasedOnUser(parsedUser);
+                    }
                 }
             }
         } catch (e) {
@@ -155,21 +164,23 @@ const App: React.FC = () => {
               const currentStatus = userData.status;
               const prevStatus = previousStatusRef.current;
 
-              // --- CRITICAL: HANDLE PENDING -> APPROVED TRANSITION ---
-              // The user specifically requested: "After approval, do not redirect to assessments instead go back to login screen."
-              // This handles the case where a user might be somehow watching the screen (or the app is open) when approval happens.
+              // --- CRITICAL FIX: HANDLE PENDING -> APPROVED TRANSITION ---
               if (prevStatus === 'PENDING' && currentStatus === 'APPROVED') {
                    console.log("Transition PENDING -> APPROVED detected. Forcing logout.");
-                   Alert.alert("Approved!", "Your account has been approved. Please log in.");
-                   // Do NOT navigate. Sign out immediately.
                    await handleSignOut();
                    setLoading(false);
                    return;
               }
 
-              // --- CRITICAL: HANDLE EXISTING PENDING ---
-              // If we load and find the user is PENDING, we must sign them out. They cannot be in the app.
+              // --- CRITICAL FIX: HANDLE EXISTING PENDING ---
               if (currentStatus === 'PENDING') {
+                  // NEW: If we are in SIGN_UP screen, ignore this snapshot. 
+                  // This allows SignUpScreen to finish writing data before we kill the session.
+                  if (currentScreenRef.current === Screen.SIGN_UP) {
+                      console.log("In Sign Up flow. Ignoring PENDING status.");
+                      return;
+                  }
+
                   console.log("Snapshot detected PENDING status. Forcing logout.");
                   await handleSignOut();
                   setLoading(false);
@@ -177,7 +188,6 @@ const App: React.FC = () => {
               }
 
               // --- NORMAL FLOW (APPROVED / REJECTED) ---
-              // Only update state if we are NOT pending.
               setCurrentUser(userData);
               setDifficulty(userData.assignedDifficulty || Difficulty.MILD);
               saveProfileLocally(userData);
@@ -186,7 +196,6 @@ const App: React.FC = () => {
               if (loading) {
                   navigateBasedOnUser(userData);
               } else {
-                 // Runtime updates
                  if (currentStatus === 'REJECTED') {
                      handleSignOut();
                      Alert.alert("Access Revoked", "Your account has been rejected.");
@@ -194,7 +203,16 @@ const App: React.FC = () => {
               }
               setLoading(false);
           } else {
-             // Doc missing - treat as pending/error
+             // Doc missing
+             // CRITICAL FIX FOR SIGN UP:
+             // If we are currently in SIGN_UP screen, this is expected behavior during creation.
+             if (currentScreenRef.current === Screen.SIGN_UP) {
+                 console.log("User doc missing during Sign Up. Allowing creation to proceed.");
+                 return;
+             }
+
+             // Otherwise, treat as missing/error
+             console.log("User doc missing and not in Sign Up. Signing out.");
              await handleSignOut();
              setLoading(false);
           }
@@ -202,11 +220,9 @@ const App: React.FC = () => {
            console.warn("Firestore Read Error:", error.code);
            if (error.code === 'permission-denied') {
                setConnectionStatus('OFFLINE_MODE');
-               // Allow offline usage only if we have a valid APPROVED local user
                if (currentUser && currentUser.status === 'APPROVED') {
                    setLoading(false);
                } else {
-                   // Otherwise logout
                    handleSignOut();
                    setLoading(false);
                }

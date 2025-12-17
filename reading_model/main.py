@@ -14,7 +14,7 @@ app = FastAPI(title="Lexi Whisper INT8 API")
 # ==========================
 # CONFIG: Load model from Hugging Face
 # ==========================
-MODEL_HF_REPO = "sesefi/lexi-reading-pronunciation"
+MODEL_HF_REPO = "sesefi/lexi-reading-guide"
 
 # Use INT8 quantization to reduce memory usage
 bnb_config = BitsAndBytesConfig(load_in_8bit=True)
