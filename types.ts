@@ -54,6 +54,7 @@ export interface ProgressRecord {
 export interface UserProfile {
   uid: string;
   email: string;
+  username?: string; // Generated on approval
   childName: string;
   childAge?: string;
   role: 'Guardian' | 'Admin';
@@ -74,6 +75,7 @@ export interface GuardianApplication {
   uid?: string; // Link to the Auth User
   guardianName: string;
   email: string;
+  username?: string; // Generated on approval
   childName: string;
   childAge: string;
   relationship: string;

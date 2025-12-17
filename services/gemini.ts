@@ -57,7 +57,7 @@ export const checkPronunciation = async (audioUri: string, targetWord: string): 
 
   while (attempt < maxAttempts) {
     try {
-        console.log(`[Gemini] Checking pronunciation for: "${targetWord}" (Attempt ${attempt + 1})`);
+        console.log(`Checking pronunciation for: "${targetWord}" (Attempt ${attempt + 1})`);
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
@@ -98,7 +98,7 @@ export const checkPronunciation = async (audioUri: string, targetWord: string): 
 
         if (response.text) {
             const result = JSON.parse(response.text);
-            console.log("[Gemini] Analysis result:", result);
+            console.log("Analysis result:", result);
             return result;
         }
         throw new Error("No response text from AI");
@@ -109,7 +109,7 @@ export const checkPronunciation = async (audioUri: string, targetWord: string): 
             attempt++;
             if (attempt < maxAttempts) {
                 const waitTime = attempt * 2000; // 2s, 4s
-                console.log(`[Gemini] Model overloaded. Retrying in ${waitTime}ms...`);
+                console.log(`Model overloaded. Retrying in ${waitTime}ms...`);
                 await delay(waitTime);
                 continue;
             }
@@ -145,7 +145,7 @@ export const analyzeReadingAssessment = async (audioUri: string, targetText: str
 
   while (attempt < maxAttempts) {
     try {
-        console.log(`[Gemini] Analyzing reading assessment... (Attempt ${attempt + 1})`);
+        console.log(`Analyzing reading assessment... (Attempt ${attempt + 1})`);
 
         const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
@@ -185,7 +185,7 @@ export const analyzeReadingAssessment = async (audioUri: string, targetText: str
         });
 
         const analysis = JSON.parse(response.text || "{}");
-        console.log("[Gemini] Assessment Result:", analysis);
+        console.log("Assessment Result:", analysis);
 
         const minutes = durationSeconds / 60;
         const wpm = minutes > 0 ? Math.round((analysis.correctWordCount || 0) / minutes) : 0;
@@ -201,7 +201,7 @@ export const analyzeReadingAssessment = async (audioUri: string, targetText: str
             attempt++;
             if (attempt < maxAttempts) {
                 const waitTime = attempt * 2000;
-                console.log(`[Gemini] Assessment overloaded. Retrying in ${waitTime}ms...`);
+                console.log(`Assessment overloaded. Retrying in ${waitTime}ms...`);
                 await delay(waitTime);
                 continue;
             }

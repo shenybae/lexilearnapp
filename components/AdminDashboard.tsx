@@ -44,6 +44,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
     }
   };
 
+  const generateUsername = (fullName: string) => {
+    const cleanName = fullName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    return `${cleanName}${randomSuffix}`;
+  };
+
   const handleStatusChange = async (app: GuardianApplication, newStatus: 'APPROVED' | 'REJECTED') => {
     if (!app.uid || !app.id) {
         Alert.alert("Error", "User ID missing for this application. Cannot update user record.");
@@ -52,16 +58,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
 
     const processUpdate = async () => {
         try {
-            // Step 2: Update Application Status
+            let generatedUsername = "";
+            
+            // Generate Username if approving and one doesn't exist
+            if (newStatus === 'APPROVED') {
+                generatedUsername = app.username || generateUsername(app.guardianName);
+            }
+
+            // Step 2: Update Application Status and Username
             const appRef = doc(db, 'applications', app.id!);
-            await updateDoc(appRef, { status: newStatus });
+            const updateData: any = { status: newStatus };
+            if (generatedUsername) updateData.username = generatedUsername;
+            
+            await updateDoc(appRef, updateData);
       
             // Update User Profile Status in 'users' collection
             const userRef = doc(db, 'users', app.uid!);
-            await updateDoc(userRef, { status: newStatus });
+            await updateDoc(userRef, updateData);
       
             setApplications(prev => prev.map(a => 
-              a.id === app.id ? { ...a, status: newStatus } : a
+              a.id === app.id ? { ...a, status: newStatus, username: generatedUsername } : a
             ));
             
             if (newStatus === 'APPROVED') {
@@ -69,20 +85,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                     "Approved",
                     "The account is now active. Would you like to send the approval email with credentials now?",
                     [
-                        { text: "No", style: "cancel" },
+                        { text: "No", onPress: () => onExit() },
                         { 
                             text: "Send Email", 
                             onPress: () => {
                                 const subject = "LexiLearn Account Approved - Login Details";
-                                const body = `Dear ${app.guardianName},\n\nCongratulations! Your Guardian Application for LexiLearn has been approved.\n\nYou may now log in to the application.\n\n-------------------------\nYour Login Credentials:\n\nUsername: ${app.email}\nPassword: [The password you set during application]\n-------------------------\n\nPlease keep this information safe.\n\nBest,\nLexiLearn Admin Team`;
+                                const body = `Dear ${app.guardianName},\n\nCongratulations! Your Guardian Application for LexiLearn has been approved.\n\nYou may now log in to the application.\n\n-------------------------\nYour Login Credentials:\n\nUsername: ${generatedUsername}\nPassword: [The password you set during application]\n-------------------------\n\nPlease keep this information safe.\n\nBest,\nLexiLearn Admin Team`;
                                 const mailUrl = `mailto:${app.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                                 Linking.openURL(mailUrl).catch(err => console.error("Could not open mail client", err));
+                                onExit(); // Return to Login Screen after action
                             } 
                         }
                     ]
                 );
             } else {
-                Alert.alert("Rejected", "Application has been rejected.");
+                Alert.alert("Rejected", "Application has been rejected.", [{ text: "OK", onPress: () => onExit() }]);
             }
       
           } catch (error: any) {
@@ -246,6 +263,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                                     <Mail size={14} {...({color: "#6B7280"} as any)} />
                                     <Text style={styles.emailText}>{app.email}</Text>
                                 </View>
+                                {app.username && (
+                                    <View style={styles.emailRow}>
+                                        <User size={14} {...({color: "#6B7280"} as any)} />
+                                        <Text style={styles.emailText}>Username: {app.username}</Text>
+                                    </View>
+                                )}
                             </View>
                             <View style={[
                                 styles.statusBadge,

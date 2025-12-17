@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, PanResponder, ScrollView, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { Brain, Volume2, Trophy, Star, Mic, Square, Eraser, CheckCircle, AlertCircle, TrendingUp, Sparkles, Activity } from 'lucide-react-native';
 import { Difficulty, UserProfile, AssessmentScores } from '../types';
-import { db, doc, setDoc } from '../firebaseConfig';
+import { db, doc, setDoc, updateDoc } from '../firebaseConfig';
 import { analyzeReadingAssessment } from '../services/gemini';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
@@ -347,6 +347,8 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
         if (response.ok) {
             const data = await response.json();
+            console.log("Prediction API Response:", JSON.stringify(data, null, 2));
+
             if (data.predicted_difficulty) {
                 const diffLower = data.predicted_difficulty.toLowerCase();
                 if (diffLower.includes('mild')) assignedDiff = Difficulty.MILD;
@@ -356,7 +358,11 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
             }
             if (data.focus_areas && Array.isArray(data.focus_areas)) {
                 // API returns ordered list: [Weakest (Primary), Secondary, Strongest (Last)]
-                finalFocusOrder = data.focus_areas.map((f: any) => f.name);
+                // Normalize names to Title Case to match areasMap keys later
+                finalFocusOrder = data.focus_areas.map((f: any) => {
+                    const name = f.name || '';
+                    return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+                });
             }
         }
     } catch (error: any) {
@@ -378,8 +384,10 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
     if (user.uid) {
         try {
+            // NOTE: We do NOT set assessmentComplete: true here yet. 
+            // We wait for the user to click "Continue" on the results screen.
+            // This prevents App.tsx from redirecting before the user sees the results.
             await setDoc(doc(db, "users", user.uid), { 
-                assessmentComplete: true, 
                 assignedDifficulty: assignedDiff, 
                 assessmentScores 
             }, { merge: true });
@@ -387,6 +395,23 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
             console.error("Error saving assessment results:", e);
         }
     }
+  };
+
+  const handleContinue = async () => {
+      if (!calculatedProfile) return;
+      
+      // Finalize: Set assessmentComplete to true in Firestore
+      if (user.uid) {
+        try {
+            await updateDoc(doc(db, "users", user.uid), { 
+                assessmentComplete: true
+            });
+        } catch (e) {
+            console.error("Error finalizing assessment:", e);
+        }
+      }
+      
+      onComplete(calculatedProfile);
   };
 
   const renderTask = () => {
@@ -561,7 +586,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
      let focusAreas;
      if (scores.focusAreas && scores.focusAreas.length > 0) {
-         // Use the order from the API
+         // Use the order from the API (names normalized in finishAssessment)
          focusAreas = scores.focusAreas.map(name => ({
              name,
              score: areasMap[name] || 0
@@ -581,11 +606,11 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                  <View style={styles.trophyIcon}>
                     <Trophy size={48} {...({color: "#CA8A04"} as any)} />
                  </View>
-                 <Text style={styles.resultTitle}>AI Analysis Complete!</Text>
-                 <Text style={styles.resultSubtitle}>Based on your assessment performance</Text>
+                 <Text style={styles.resultTitle}>Learning Path Analysis Complete!</Text>
+                 <Text style={styles.resultSubtitle}>Here is your personalized learning plan</Text>
                  
                  <View style={styles.resultLevelBox}>
-                    <Text style={styles.levelLabel}>Recommended Difficulty</Text>
+                    <Text style={styles.levelLabel}>AI Recommended Difficulty</Text>
                     <View style={styles.levelRow}>
                         <Text style={styles.levelText}>{calculatedProfile.assignedDifficulty}</Text>
                         <Star {...({fill: "#4A90E2"} as any)} {...({color: "#4A90E2"} as any)} size={32} />
@@ -600,7 +625,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                         <View style={styles.focusRow}>
                             <AlertCircle {...({color: "#EF4444"} as any)} size={28} />
                             <View style={{flex: 1}}>
-                                <Text style={[styles.focusLabel, {color: '#B91C1C'}]}>Primary Focus (Needs Attention)</Text>
+                                <Text style={[styles.focusLabel, {color: '#B91C1C'}]}>Primary Focus</Text>
                                 <Text style={styles.focusValue}>{focusAreas[0]?.name || 'N/A'}</Text>
                             </View>
                             <View style={styles.scoreBadge}>
@@ -623,12 +648,12 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                         </View>
                     </View>
 
-                    {/* TERTIARY / LAST FOCUS (Strongest) */}
+                    {/* LAST FOCUS (Strongest) */}
                     <View style={[styles.focusItem, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }]}>
                         <View style={styles.focusRow}>
                             <CheckCircle {...({color: "#16A34A"} as any)} size={28} />
                             <View style={{flex: 1}}>
-                                <Text style={[styles.focusLabel, {color: '#15803D'}]}>Last Focus (Strength)</Text>
+                                <Text style={[styles.focusLabel, {color: '#15803D'}]}>Last Focus</Text>
                                 <Text style={styles.focusValue}>{focusAreas[2]?.name || 'N/A'}</Text>
                             </View>
                             <View style={styles.scoreBadge}>
@@ -639,7 +664,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                  </View>
 
                  <TouchableOpacity 
-                    onPress={() => onComplete(calculatedProfile)}
+                    onPress={handleContinue}
                     style={styles.primaryButton}
                  >
                     <Text style={styles.buttonText}>Continue to Student Dashboard</Text>

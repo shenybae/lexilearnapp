@@ -67,7 +67,13 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
           progressHistory: []
       };
 
+      // 4. Batch Write
+      const batch = writeBatch(db);
+      const userRef = doc(db, "users", uid);
+      const appRef = doc(collection(db, "applications"));
+
       const application: GuardianApplication = {
+          id: appRef.id, // Explicitly adding ID
           uid,
           guardianName: formData.guardianName,
           email: formData.email,
@@ -78,11 +84,6 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
           status: 'PENDING',
           dateApplied: new Date().toISOString()
       };
-
-      // 4. Batch Write
-      const batch = writeBatch(db);
-      const userRef = doc(db, "users", uid);
-      const appRef = doc(collection(db, "applications"));
 
       batch.set(userRef, userProfile);
       batch.set(appRef, application);

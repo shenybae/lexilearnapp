@@ -20,6 +20,7 @@ import { auth, db, onAuthStateChanged, signOut, doc, getDoc, updateDoc, onSnapsh
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(true); // Fix: Track loading state for closure access
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
   const currentScreenRef = useRef<Screen>(Screen.LOGIN);
   const previousStatusRef = useRef<string | null>(null);
@@ -32,6 +33,11 @@ const App: React.FC = () => {
   const setScreen = (screen: Screen) => {
       setCurrentScreen(screen);
       currentScreenRef.current = screen;
+  };
+
+  const updateLoading = (val: boolean) => {
+      setLoading(val);
+      loadingRef.current = val;
   };
 
   useEffect(() => {
@@ -103,7 +109,7 @@ const App: React.FC = () => {
   };
 
   const handleRetryConnection = () => {
-      setLoading(true);
+      updateLoading(true);
       setConnectionStatus('ONLINE');
       setRetryTrigger(prev => prev + 1);
   };
@@ -137,7 +143,7 @@ const App: React.FC = () => {
                     // CRITICAL: Allow Sign Up screen to process without interruption
                     if (currentScreenRef.current !== Screen.SIGN_UP) {
                          handleSignOut();
-                         setLoading(false);
+                         updateLoading(false);
                          return;
                     }
                 }
@@ -147,7 +153,7 @@ const App: React.FC = () => {
                     setDifficulty(parsedUser.assignedDifficulty || Difficulty.MILD);
                     previousStatusRef.current = parsedUser.status;
 
-                    if (loading || currentScreen === Screen.LOGIN) {
+                    if (loadingRef.current || currentScreen === Screen.LOGIN) {
                         navigateBasedOnUser(parsedUser);
                     }
                 }
@@ -164,18 +170,21 @@ const App: React.FC = () => {
               const currentStatus = userData.status;
               const prevStatus = previousStatusRef.current;
 
+              // --- FIX: IGNORE UPDATES IF ADMIN DASHBOARD IS ACTIVE ---
+              if (currentScreenRef.current === Screen.ADMIN_DASHBOARD) {
+                  return;
+              }
+
               // --- CRITICAL FIX: HANDLE PENDING -> APPROVED TRANSITION ---
               if (prevStatus === 'PENDING' && currentStatus === 'APPROVED') {
                    console.log("Transition PENDING -> APPROVED detected. Forcing logout.");
                    await handleSignOut();
-                   setLoading(false);
+                   updateLoading(false);
                    return;
               }
 
               // --- CRITICAL FIX: HANDLE EXISTING PENDING ---
               if (currentStatus === 'PENDING') {
-                  // NEW: If we are in SIGN_UP screen, ignore this snapshot. 
-                  // This allows SignUpScreen to finish writing data before we kill the session.
                   if (currentScreenRef.current === Screen.SIGN_UP) {
                       console.log("In Sign Up flow. Ignoring PENDING status.");
                       return;
@@ -183,7 +192,7 @@ const App: React.FC = () => {
 
                   console.log("Snapshot detected PENDING status. Forcing logout.");
                   await handleSignOut();
-                  setLoading(false);
+                  updateLoading(false);
                   return;
               }
 
@@ -193,52 +202,53 @@ const App: React.FC = () => {
               saveProfileLocally(userData);
               previousStatusRef.current = currentStatus;
 
-              if (loading) {
+              // FIX: Use ref to check current loading state inside closure
+              if (loadingRef.current) {
                   navigateBasedOnUser(userData);
               } else {
                  if (currentStatus === 'REJECTED') {
                      handleSignOut();
                      Alert.alert("Access Revoked", "Your account has been rejected.");
+                 } else if (currentStatus === 'APPROVED' && !userData.assessmentComplete && currentScreenRef.current !== Screen.ASSESSMENT) {
+                     // Auto-redirect to assessment if newly approved and not already there
+                     setScreen(Screen.ASSESSMENT);
                  }
               }
-              setLoading(false);
+              updateLoading(false);
           } else {
              // Doc missing
-             // CRITICAL FIX FOR SIGN UP:
-             // If we are currently in SIGN_UP screen, this is expected behavior during creation.
              if (currentScreenRef.current === Screen.SIGN_UP) {
                  console.log("User doc missing during Sign Up. Allowing creation to proceed.");
                  return;
              }
 
-             // Otherwise, treat as missing/error
              console.log("User doc missing and not in Sign Up. Signing out.");
              await handleSignOut();
-             setLoading(false);
+             updateLoading(false);
           }
         }, (error: any) => {
            console.warn("Firestore Read Error:", error.code);
            if (error.code === 'permission-denied') {
                setConnectionStatus('OFFLINE_MODE');
                if (currentUser && currentUser.status === 'APPROVED') {
-                   setLoading(false);
+                   updateLoading(false);
                } else {
                    handleSignOut();
-                   setLoading(false);
+                   updateLoading(false);
                }
            } else {
-               setLoading(false);
+               updateLoading(false);
            }
         });
 
         return () => unsubscribeSnapshot();
       } else {
         if (currentUser && currentUser.uid.startsWith('admin_manual_')) {
-            setLoading(false);
+            updateLoading(false);
         } else {
             setCurrentUser(null);
             setScreen(Screen.LOGIN);
-            setLoading(false);
+            updateLoading(false);
             previousStatusRef.current = null;
         }
       }
@@ -276,7 +286,9 @@ const App: React.FC = () => {
 
   const handleLevelProgress = async (type: 'Tracing' | 'Reading' | 'Spelling' | 'Memory', levelIndex: number) => {
       if (!currentUser) return;
-      const currentSaved = currentUser[`last${type}Index` as keyof UserProfile] as number || 0;
+      
+      const currentSaved = (currentUser[`last${type}Index` as keyof UserProfile] as number) ?? -1;
+      
       if (levelIndex <= currentSaved) return;
 
       const fieldName = `last${type}Index` as keyof UserProfile;
@@ -310,6 +322,11 @@ const App: React.FC = () => {
             }
           }
       }
+  };
+
+  // Helper to calculate the next starting index.
+  const getInitialIndex = (lastIndex?: number) => {
+      return (lastIndex ?? -1) + 1;
   };
 
   const renderChildDashboard = () => (
@@ -347,7 +364,7 @@ const App: React.FC = () => {
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Tracing</Text>
             <Text style={styles.activityDesc}>Trace SVG paths</Text>
-            <Text style={styles.activityDesc}>Level {currentUser?.lastTracingIndex ? currentUser.lastTracingIndex + 1 : 1}</Text>
+            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastTracingIndex) + 1}</Text>
           </View>
           <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
         </TouchableOpacity>
@@ -360,7 +377,7 @@ const App: React.FC = () => {
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Reading</Text>
             <Text style={styles.activityDesc}>Pronunciation & Fluency</Text>
-            <Text style={styles.activityDesc}>Level {currentUser?.lastReadingIndex ? currentUser.lastReadingIndex + 1 : 1}</Text>
+            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastReadingIndex) + 1}</Text>
           </View>
           <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
         </TouchableOpacity>
@@ -373,7 +390,7 @@ const App: React.FC = () => {
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Spelling</Text>
             <Text style={styles.activityDesc}>Word Construction</Text>
-            <Text style={styles.activityDesc}>Level {currentUser?.lastSpellingIndex ? currentUser.lastSpellingIndex + 1 : 1}</Text>
+            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastSpellingIndex) + 1}</Text>
           </View>
           <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
         </TouchableOpacity>
@@ -386,7 +403,7 @@ const App: React.FC = () => {
           <View style={{flex: 1}}>
             <Text style={styles.activityTitle}>Memory</Text>
             <Text style={styles.activityDesc}>Pattern Recall</Text>
-            <Text style={styles.activityDesc}>Level {currentUser?.lastMemoryIndex ? currentUser.lastMemoryIndex + 1 : 1}</Text>
+            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastMemoryIndex) + 1}</Text>
           </View>
           <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
         </TouchableOpacity>
@@ -462,7 +479,6 @@ const App: React.FC = () => {
        {currentScreen === Screen.SIGN_UP && (
           <SignUpScreen onBack={() => setScreen(Screen.LOGIN)} />
        )}
-       {/* NOTE: PENDING_APPROVAL screen is removed. PENDING users are forced to logout. */}
        {currentScreen === Screen.ASSESSMENT && currentUser && (
           <AssessmentFlow 
             user={currentUser} 
@@ -481,7 +497,7 @@ const App: React.FC = () => {
           <TracingActivity 
             items={TRACING_ITEMS} 
             difficulty={difficulty} 
-            initialIndex={currentUser?.lastTracingIndex || 0}
+            initialIndex={getInitialIndex(currentUser?.lastTracingIndex)}
             onComplete={(s) => handleActivityComplete('Tracing', s)} 
             onLevelComplete={(idx) => handleLevelProgress('Tracing', idx)}
             onExit={() => setScreen(Screen.CHILD_DASHBOARD)} 
@@ -491,7 +507,7 @@ const App: React.FC = () => {
           <ReadingActivity 
             items={READING_ITEMS} 
             difficulty={difficulty} 
-            initialIndex={currentUser?.lastReadingIndex || 0}
+            initialIndex={getInitialIndex(currentUser?.lastReadingIndex)}
             onComplete={(s) => handleActivityComplete('Reading', s)} 
             onLevelComplete={(idx) => handleLevelProgress('Reading', idx)}
             onExit={() => setScreen(Screen.CHILD_DASHBOARD)} 
@@ -501,7 +517,7 @@ const App: React.FC = () => {
           <SpellingActivity 
              items={SPELLING_ITEMS} 
              difficulty={difficulty}
-             initialIndex={currentUser?.lastSpellingIndex || 0}
+             initialIndex={getInitialIndex(currentUser?.lastSpellingIndex)}
              onComplete={(s) => handleActivityComplete('Spelling', s)}
              onLevelComplete={(idx) => handleLevelProgress('Spelling', idx)}
              onExit={() => setScreen(Screen.CHILD_DASHBOARD)}
@@ -511,7 +527,7 @@ const App: React.FC = () => {
           <MemoryActivity 
              items={MEMORY_ITEMS} 
              difficulty={difficulty}
-             initialIndex={currentUser?.lastMemoryIndex || 0}
+             initialIndex={getInitialIndex(currentUser?.lastMemoryIndex)}
              onComplete={(s) => handleActivityComplete('Memory', s)}
              onLevelComplete={(idx) => handleLevelProgress('Memory', idx)}
              onExit={() => setScreen(Screen.CHILD_DASHBOARD)}

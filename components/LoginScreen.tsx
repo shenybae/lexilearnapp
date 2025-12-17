@@ -20,25 +20,55 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
 
   const handleLogin = async () => {
     if (!email || !password) {
-      setError("Please enter both email and password.");
+      setError("Please enter both email/username and password.");
       return;
     }
 
     setLoading(true);
     setError('');
 
-    const cleanedEmail = email.trim();
+    let loginIdentifier = email.trim();
     const cleanedPassword = password.trim();
+
+    // 0. Username Resolution for Guardians
+    // If input does not contain '@' and role is Guardian, try to find email by username
+    if (role === 'Guardian' && !loginIdentifier.includes('@')) {
+        try {
+            const usersRef = collection(db, "users");
+            const q = query(usersRef, where("username", "==", loginIdentifier));
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.empty) {
+                setError("Username not found.");
+                setLoading(false);
+                return;
+            }
+            
+            const userData = snapshot.docs[0].data() as UserProfile;
+            if (userData.email) {
+                loginIdentifier = userData.email;
+            }
+        } catch (err: any) {
+            console.error("Username lookup failed", err);
+            // If offline or permission issue, we can't look up username.
+            // But we will let it fail at authentication step or show specific error.
+            if (err.code === 'permission-denied') {
+                setError("Connection error. Please check internet.");
+                setLoading(false);
+                return;
+            }
+        }
+    }
 
     if (role === 'Admin') {
         let manualLoginSuccess = false;
         
         // 1. Try Manual Firestore Check (Requested Feature)
         try {
-            console.log(`Attempting Manual Admin Login for: ${cleanedEmail}`);
+            console.log(`Attempting Manual Admin Login for: ${loginIdentifier}`);
             const adminsRef = collection(db, "admin");
             // Exact match query
-            const q = query(adminsRef, where("email", "==", cleanedEmail), where("password", "==", cleanedPassword));
+            const q = query(adminsRef, where("email", "==", loginIdentifier), where("password", "==", cleanedPassword));
             const querySnapshot = await getDocs(q);
 
             if (!querySnapshot.empty) {
@@ -46,7 +76,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
                 // SUCCESS: Verified against Firestore credentials
                 const adminProfile: UserProfile = {
                     uid: 'admin_manual_' + Date.now(),
-                    email: cleanedEmail,
+                    email: loginIdentifier,
                     childName: 'Administrator',
                     role: 'Admin',
                     status: 'APPROVED',
@@ -71,11 +101,11 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
         // 2. Standard Firebase Auth Fallback
         try {
             console.log("Attempting Firebase Auth Login...");
-            await signInWithEmailAndPassword(auth, cleanedEmail, cleanedPassword);
+            await signInWithEmailAndPassword(auth, loginIdentifier, cleanedPassword);
             
             // Verify if this email is in the admin whitelist
             const adminsRef = collection(db, "admin");
-            const qAuth = query(adminsRef, where("email", "==", cleanedEmail));
+            const qAuth = query(adminsRef, where("email", "==", loginIdentifier));
             
             try {
                 const snapAuth = await getDocs(qAuth);
@@ -92,7 +122,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
             // Auth success
             const adminProfileAuth: UserProfile = {
                   uid: auth.currentUser?.uid || 'admin_auth',
-                  email: cleanedEmail,
+                  email: loginIdentifier,
                   childName: 'Administrator',
                   role: 'Admin',
                   status: 'APPROVED',
@@ -116,7 +146,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
         // Guardian Login (Standard Flow)
         try {
           // 1. Authenticate
-          const userCredential = await signInWithEmailAndPassword(auth, cleanedEmail, cleanedPassword);
+          const userCredential = await signInWithEmailAndPassword(auth, loginIdentifier, cleanedPassword);
           const uid = userCredential.user.uid;
 
           // 2. Verify User Profile
@@ -135,21 +165,23 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
             }
             
             // --- STRICT STATUS CHECKS ---
+            // If REJECTED, block login.
             if (userData.status === 'REJECTED') {
                 await signOut(auth);
-                setError("Account application rejected. Contact support.");
+                Alert.alert("Access Denied", "Your application has been rejected by the administrator.");
+                setError("Account application rejected.");
                 setLoading(false);
                 return;
             }
 
+            // If PENDING, block login and show alert.
             if (userData.status === 'PENDING') {
                 await signOut(auth);
-                // ALERT THE USER THEY MUST WAIT
                 Alert.alert(
                     "Application Pending", 
-                    "Your account has not been approved by an administrator yet.\n\nPlease check your email or try again later."
+                    "Your account is waiting for administrator approval.\n\nYou will receive an email once approved. Please try again later."
                 );
-                setError("Account is pending approval.");
+                setError("Account pending approval.");
                 setLoading(false);
                 return;
             }
@@ -167,7 +199,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
         } catch (err: any) {
           console.error(err);
           if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-            setError('Invalid email or password.');
+            setError('Invalid credentials.');
           } else if (err.code === 'auth/invalid-email') {
             setError('Please enter a valid email address.');
           } else {
@@ -236,7 +268,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
           </Modal>
 
           <View>
-            <Text style={styles.label}>Email Address</Text>
+            <Text style={styles.label}>Email or Username</Text>
             <View style={styles.inputWrapper}>
               <View style={styles.iconPos}>
                 <Mail size={20} {...({color: "#9CA3AF"} as any)} />
@@ -245,9 +277,8 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
                 value={email}
                 onChangeText={setEmail}
                 style={styles.textInput}
-                placeholder="user@lexilearn.com"
+                placeholder="Email or Username"
                 placeholderTextColor="#9CA3AF"
-                keyboardType="email-address"
                 autoCapitalize="none"
               />
             </View>
