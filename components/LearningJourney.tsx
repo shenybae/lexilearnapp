@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { UserProfile, Difficulty } from '../types';
@@ -41,7 +40,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
       <View style={styles.header}>
         <Text style={styles.title}>Learning Journey</Text>
         <TouchableOpacity onPress={onExit} style={styles.closeButton}>
-            <X size={24} stroke="#6B7280" />
+            <X size={24} {...({color: "#6B7280"} as any)} />
         </TouchableOpacity>
       </View>
 
@@ -53,7 +52,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Reading */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <BookOpen size={18} stroke="#3B82F6" />
+                    <BookOpen size={18} {...({color: "#3B82F6"} as any)} />
                     <Text style={styles.skillLabel}>Reading</Text>
                  </View>
                  <View style={styles.progressBarBg}>
@@ -65,7 +64,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Writing */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <PenTool size={18} stroke="#22C55E" />
+                    <PenTool size={18} {...({color: "#22C55E"} as any)} />
                     <Text style={styles.skillLabel}>Writing</Text>
                  </View>
                  <View style={styles.progressBarBg}>
@@ -77,7 +76,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Spelling */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <Type size={18} stroke="#A855F7" />
+                    <Type size={18} {...({color: "#A855F7"} as any)} />
                     <Text style={styles.skillLabel}>Spelling</Text>
                  </View>
                  <View style={styles.progressBarBg}>
@@ -89,7 +88,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
              {/* Memory */}
              <View style={styles.skillRow}>
                  <View style={styles.labelGroup}>
-                    <Zap size={18} stroke="#F59E0B" />
+                    <Zap size={18} {...({color: "#F59E0B"} as any)} />
                     <Text style={styles.skillLabel}>Memory</Text>
                  </View>
                  <View style={styles.progressBarBg}>
@@ -121,7 +120,7 @@ export const LearningJourney: React.FC<JourneyProps> = ({ user, onExit }) => {
                         styles.nodeCircle, 
                         isCurrent ? {borderColor: '#4A90E2'} : isCompleted ? {borderColor: '#10B981'} : {borderColor: '#D1D5DB'}
                     ]}>
-                        {isCompleted ? <CheckCircle size={16} stroke="#10B981" /> : isCurrent ? <Star size={16} stroke="#4A90E2" {...({fill: "#4A90E2"} as any)} /> : <Lock size={14} stroke="#D1D5DB" />}
+                        {isCompleted ? <CheckCircle size={16} {...({color: "#10B981"} as any)} /> : isCurrent ? <Star size={16} {...({color: "#4A90E2"} as any)} {...({fill: "#4A90E2"} as any)} /> : <Lock size={14} {...({color: "#D1D5DB"} as any)} />}
                     </View>
 
                     <View style={styles.levelContent}>
@@ -291,8 +290,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     marginTop: 4,
-    lineHeight: 20,
-  },
+    lineHeight: 20,  },
   currentBadge: {
     paddingHorizontal: 12,
     paddingVertical: 4,

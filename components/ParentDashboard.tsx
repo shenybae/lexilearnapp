@@ -62,8 +62,17 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
         { name: 'Writing', score: writingAvg },
         { name: 'Spelling', score: spellingAvg }
     ];
-    // Sort ascending (lowest score is primary focus)
-    focusAreas = areas.sort((a, b) => a.score - b.score);
+
+    if (assessmentScores.focusAreas && assessmentScores.focusAreas.length > 0) {
+        // Use the saved AI-predicted order
+        focusAreas = assessmentScores.focusAreas.map(name => {
+            const match = areas.find(a => a.name === name);
+            return match || { name, score: 0 };
+        });
+    } else {
+        // Fallback: Sort ascending (lowest score is primary focus)
+        focusAreas = areas.sort((a, b) => a.score - b.score);
+    }
   } else {
     focusAreas = [];
   }
@@ -87,19 +96,19 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
                       autoFocus
                     />
                     <TouchableOpacity onPress={handleSaveName} style={styles.saveButton}>
-                        <Save size={20} stroke="#15803D" />
+                        <Save size={20} {...({color: "#15803D"} as any)} />
                     </TouchableOpacity>
                 </View>
             ) : (
                 <TouchableOpacity onPress={() => setIsEditingName(true)} style={styles.editNameRow}>
                     <Text style={styles.headerTitle}>{childName}'s Progress</Text>
-                    <Edit2 size={18} stroke="#9CA3AF" />
+                    <Edit2 size={18} {...({color: "#9CA3AF"} as any)} />
                 </TouchableOpacity>
             )}
         </View>
         
         <TouchableOpacity onPress={onExit} style={styles.exitButton}>
-          <LogOut size={20} stroke="#374151" />
+          <LogOut size={20} {...({color: "#374151"} as any)} />
         </TouchableOpacity>
       </View>
 
@@ -119,7 +128,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
         </View>
         <View style={[styles.summaryCard, {borderLeftColor: '#F97316'}]}>
           <View style={styles.row}>
-             <Settings size={12} stroke="#6B7280" />
+             <Settings size={12} {...({color: "#6B7280"} as any)} />
              <Text style={styles.summaryLabel}>Level</Text>
           </View>
           <Text style={[styles.summaryValue, {fontSize: 18}]}>{currentDifficulty}</Text>
@@ -153,7 +162,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
               </View>
           ) : (
              <View style={styles.emptyStateBox}>
-                 <PlusCircle size={48} stroke="#D1D5DB" />
+                 <PlusCircle size={48} {...({color: "#D1D5DB"} as any)} />
                  <Text style={styles.emptyStateText}>No activity data recorded yet.</Text>
                  <Text style={styles.emptyStateSub}>Complete activities in the Student Area to see progress charts here.</Text>
              </View>
@@ -192,7 +201,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
                 <View>
                    <View style={styles.breakdownHeader}>
                        <View style={styles.row}>
-                           <BookOpen size={18} stroke="#4B5563" />
+                           <BookOpen size={18} {...({color: "#4B5563"} as any)} />
                            <Text style={styles.breakdownLabel}>Reading</Text>
                        </View>
                        <Text style={[styles.breakdownScore, {color: '#4A90E2'}]}>{readingAvg}%</Text>
@@ -205,7 +214,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
                 <View>
                    <View style={styles.breakdownHeader}>
                        <View style={styles.row}>
-                           <PenTool size={18} stroke="#4B5563" />
+                           <PenTool size={18} {...({color: "#4B5563"} as any)} />
                            <Text style={styles.breakdownLabel}>Writing</Text>
                        </View>
                        <Text style={[styles.breakdownScore, {color: '#10B981'}]}>{writingAvg}%</Text>
@@ -218,7 +227,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
                 <View>
                    <View style={styles.breakdownHeader}>
                        <View style={styles.row}>
-                           <Type size={18} stroke="#4B5563" />
+                           <Type size={18} {...({color: "#4B5563"} as any)} />
                            <Text style={styles.breakdownLabel}>Spelling</Text>
                        </View>
                        <Text style={[styles.breakdownScore, {color: '#8B5CF6'}]}>{spellingAvg}%</Text>
@@ -232,7 +241,7 @@ export const ParentDashboard: React.FC<DashboardProps> = ({ progressData, childN
       )}
       
       <View style={styles.insightsCard}>
-        <Shield size={24} stroke="#2563EB" />
+        <Shield size={24} {...({color: "#2563EB"} as any)} />
         <View style={{flex: 1}}>
             <Text style={styles.insightsTitle}>AI Insights for {childName}</Text>
             {focusAreas.length > 0 ? (

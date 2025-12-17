@@ -1,9 +1,8 @@
 
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Pressable, ActivityIndicator, Alert, StyleSheet } from 'react-native';
-import { Brain, Mail, User, Baby, ArrowLeft, CheckCircle, Send, ChevronDown, Lock } from 'lucide-react-native';
-import { auth, db, createUserWithEmailAndPassword } from '../firebaseConfig';
-import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+import { Mail, User, Baby, ArrowLeft, Send, ChevronDown, Lock } from 'lucide-react-native';
+import { auth, db, createUserWithEmailAndPassword, signOut, collection, doc, writeBatch } from '../firebaseConfig';
 import { GuardianApplication, UserProfile, Difficulty } from '../types';
 
 interface SignUpProps {
@@ -55,26 +54,21 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const uid = userCredential.user.uid;
 
-      // 3. Create User Profile in 'users' collection (Status: PENDING)
-      // This allows the user to log in but see the "Pending Approval" screen via App.tsx routing
+      // 3. Prepare Data for Firestore
       const userProfile: UserProfile = {
           uid,
           email: formData.email,
           childName: formData.childName,
           childAge: formData.childAge,
           role: 'Guardian',
-          status: 'PENDING', // Waiting for Admin
+          status: 'PENDING',
           assessmentComplete: false,
           assignedDifficulty: Difficulty.MILD,
           progressHistory: []
       };
-      
-      await setDoc(doc(db, "users", uid), userProfile);
 
-      // 4. Create Application in 'applications' collection
-      // Admin dashboard reads from here to approve/reject
       const application: GuardianApplication = {
-          uid, // Link to the user doc
+          uid,
           guardianName: formData.guardianName,
           email: formData.email,
           childName: formData.childName,
@@ -84,14 +78,20 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
           status: 'PENDING',
           dateApplied: new Date().toISOString()
       };
-      
-      await addDoc(collection(db, "applications"), application);
 
-      Alert.alert(
-        "Application Submitted", 
-        "Your account has been created. You will be able to access the activities once an Administrator approves your application.",
-        [{ text: "OK", onPress: onBack }]
-      );
+      // 4. Batch Write
+      const batch = writeBatch(db);
+      const userRef = doc(db, "users", uid);
+      const appRef = doc(collection(db, "applications"));
+
+      batch.set(userRef, userProfile);
+      batch.set(appRef, application);
+
+      await batch.commit();
+
+      // 5. Success Flow - Sign out and return to Login immediately
+      await signOut(auth);
+      onBack();
 
     } catch (error: any) {
         console.error(error);
@@ -112,7 +112,7 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
-           <ArrowLeft size={24} stroke="#4B5563" />
+           <ArrowLeft size={24} {...({color: "#4B5563"} as any)} />
            <Text style={styles.backText}>Back to Login</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Guardian Application</Text>
@@ -127,7 +127,9 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
             <View style={styles.inputGroup}>
                 <Text style={styles.label}>Full Name</Text>
                 <View style={styles.inputContainer}>
-                    <User size={20} stroke="#9CA3AF" style={styles.inputIcon} />
+                    <View style={styles.inputIcon}>
+                        <User size={20} {...({color: "#9CA3AF"} as any)} />
+                    </View>
                     <TextInput 
                         style={styles.input}
                         value={formData.guardianName}
@@ -140,7 +142,9 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
             <View style={styles.inputGroup}>
                 <Text style={styles.label}>Email Address</Text>
                 <View style={styles.inputContainer}>
-                    <Mail size={20} stroke="#9CA3AF" style={styles.inputIcon} />
+                    <View style={styles.inputIcon}>
+                        <Mail size={20} {...({color: "#9CA3AF"} as any)} />
+                    </View>
                     <TextInput 
                         style={styles.input}
                         value={formData.email}
@@ -155,7 +159,9 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
             <View style={styles.inputGroup}>
                 <Text style={styles.label}>Password</Text>
                 <View style={styles.inputContainer}>
-                    <Lock size={20} stroke="#9CA3AF" style={styles.inputIcon} />
+                    <View style={styles.inputIcon}>
+                        <Lock size={20} {...({color: "#9CA3AF"} as any)} />
+                    </View>
                     <TextInput 
                         style={styles.input}
                         value={formData.password}
@@ -169,9 +175,11 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
             <View style={styles.inputGroup}>
                 <Text style={styles.label}>Relationship to Child</Text>
                 <TouchableOpacity onPress={() => setRelationshipModalVisible(true)} style={styles.inputContainer}>
-                    <User size={20} stroke="#9CA3AF" style={styles.inputIcon} />
+                    <View style={styles.inputIcon}>
+                        <User size={20} {...({color: "#9CA3AF"} as any)} />
+                    </View>
                     <Text style={styles.inputText}>{formData.relationship}</Text>
-                    <ChevronDown size={20} stroke="#9CA3AF" />
+                    <ChevronDown size={20} {...({color: "#9CA3AF"} as any)} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -204,7 +212,9 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
                 <View style={[styles.inputGroup, {flex: 2, marginRight: 12}]}>
                     <Text style={styles.label}>Child Name</Text>
                     <View style={styles.inputContainer}>
-                        <Baby size={20} stroke="#9CA3AF" style={styles.inputIcon} />
+                        <View style={styles.inputIcon}>
+                            <Baby size={20} {...({color: "#9CA3AF"} as any)} />
+                        </View>
                         <TextInput 
                             style={styles.input}
                             value={formData.childName}
@@ -267,7 +277,7 @@ export const SignUpScreen: React.FC<SignUpProps> = ({ onBack }) => {
             {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
                     <Text style={styles.submitButtonText}>Submit Application</Text>
-                    <Send size={20} stroke="#FFF" />
+                    <Send size={20} {...({color: "#FFF"} as any)} />
                 </>
             )}
         </TouchableOpacity>

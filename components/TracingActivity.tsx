@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, PanResponder, Dimensions, StyleSheet, Animated, Easing } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -335,7 +334,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft stroke="#4B5563" size={24} />
+          <ChevronLeft {...({color: "#4B5563"} as any)} size={24} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -349,11 +348,11 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
 
       <View style={styles.statsRow}>
          <View style={styles.statItem}>
-            <AlertCircle size={14} stroke={liveStats.errorRate > 20 ? 'red' : 'green'} />
+            <AlertCircle size={14} {...({color: liveStats.errorRate > 20 ? 'red' : 'green'} as any)} />
             <Text style={styles.statText}>Error Rate: {liveStats.errorRate}%</Text>
          </View>
          <View style={styles.statItem}>
-            <ScanLine size={14} stroke="blue" />
+            <ScanLine size={14} {...({color: "blue"} as any)} />
             <Text style={styles.statText}>Progress: {Math.round((checkpointsRef.current.filter(c => c.visited).length / (checkpointsRef.current.length || 1)) * 100)}%</Text>
          </View>
       </View>
@@ -365,7 +364,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
             disabled={currentIndex === 0}
             style={[styles.navButton, styles.navLeft, currentIndex === 0 && {opacity: 0.3}]}
           >
-            <ChevronLeft size={32} stroke="#000" />
+            <ChevronLeft size={32} {...({color: "#000"} as any)} />
           </TouchableOpacity>
           
           <TouchableOpacity 
@@ -377,7 +376,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
               (currentIndex === items.length - 1 || currentIndex >= unlockedLevel) && {opacity: 0.3, backgroundColor: '#F3F4F6'}
             ]}
           >
-            <ChevronRight size={32} stroke={currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} />
+            <ChevronRight size={32} {...({color: currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} as any)} />
           </TouchableOpacity>
 
           <Animated.View 
@@ -393,7 +392,9 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
           >
             {isOutOfBounds && (
                 <View style={styles.offTrackWarning}>
-                    <XCircle size={24} stroke="#FFF" style={{marginRight: 8}} />
+                    <View style={{ marginRight: 8 }}>
+                       <XCircle size={24} {...({color: "#FFF"} as any)} />
+                    </View>
                     <Text style={styles.offTrackText}>OFF TRACK</Text>
                 </View>
             )}
@@ -466,7 +467,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
                                 style={styles.nextButton}
                             >
                                 <Text style={styles.buttonTextWhite}>Next Level</Text>
-                                <ArrowRight size={20} stroke="#FFF" />
+                                <ArrowRight size={20} {...({color: "#FFF"} as any)} />
                             </TouchableOpacity>
                         ) : (
                             <TouchableOpacity 
@@ -484,7 +485,7 @@ export const TracingActivity: React.FC<TracingActivityProps> = ({ items, difficu
 
       <View style={styles.footerControls}>
         <TouchableOpacity onPress={resetState} style={styles.clearButton}>
-            <Eraser stroke="#dc2626" size={20} />
+            <Eraser {...({color: "#dc2626"} as any)} size={20} />
             <Text style={styles.clearButtonText}>Clear Board</Text>
         </TouchableOpacity>
       </View>

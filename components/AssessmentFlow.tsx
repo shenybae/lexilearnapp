@@ -1,14 +1,13 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, PanResponder, ScrollView, Alert, ActivityIndicator, StyleSheet, Dimensions } from 'react-native';
-import { Brain, Volume2, Trophy, Star, Mic, Square, Eraser, CheckCircle, AlertCircle, TrendingUp, Sparkles, Zap } from 'lucide-react-native';
+import { View, Text, TouchableOpacity, PanResponder, ScrollView, Alert, ActivityIndicator, StyleSheet } from 'react-native';
+import { Brain, Volume2, Trophy, Star, Mic, Square, Eraser, CheckCircle, AlertCircle, TrendingUp, Sparkles, Activity } from 'lucide-react-native';
 import { Difficulty, UserProfile, AssessmentScores } from '../types';
-import { db } from '../firebaseConfig';
+import { db, doc, setDoc } from '../firebaseConfig';
 import { analyzeReadingAssessment } from '../services/gemini';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { Svg, Path, Circle as SvgCircle } from 'react-native-svg';
-import { doc, setDoc } from 'firebase/firestore';
 
 interface AssessmentFlowProps {
   user: UserProfile;
@@ -33,14 +32,12 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCalculatingPath, setIsCalculatingPath] = useState(false);
   const [calculatedProfile, setCalculatedProfile] = useState<UserProfile | null>(null);
-  const [apiFocusOrder, setApiFocusOrder] = useState<string[] | null>(null);
   
   const [subStep, setSubStep] = useState(0);
   const [gameState, setGameState] = useState<'INTRO' | 'ACTIVE' | 'FEEDBACK'>('INTRO');
   const [accumulatedData, setAccumulatedData] = useState<any[]>([]); 
   const startTimeRef = useRef<number>(0);
 
-  // Derive age from user profile, fallback to 8 if invalid or missing
   const userAge = user.childAge ? parseFloat(user.childAge) : 8.0;
   const effectiveAge = isNaN(userAge) ? 8.0 : userAge;
 
@@ -101,14 +98,9 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     { target: 'Accommodate', options: ['Acommodate', 'Accomodate', 'Accommodate'] }
   ];
 
-  // Helper for silent cleanup
   const safeCleanupRecording = async (rec: Audio.Recording | null) => {
       if (!rec) return;
-      try {
-          await rec.stopAndUnloadAsync();
-      } catch (err) {
-          // Swallow errors during cleanup
-      }
+      try { await rec.stopAndUnloadAsync(); } catch (err) {}
   };
 
   useEffect(() => {
@@ -116,7 +108,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     setTracingPoints([]);
   }, [currentTaskIndex]);
 
-  // Global Cleanup
   useEffect(() => {
     return () => {
         if (recordingRef.current) {
@@ -126,7 +117,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     };
   }, []);
 
-  // Drawing Pan Responder
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -217,11 +207,8 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
       setRecording(newRecording);
       setGameState('ACTIVE');
       startTimeRef.current = Date.now(); 
-      console.log("Recording started successfully");
-
     } catch (err) {
       Alert.alert("Error", "Could not start microphone.");
-      console.error(err);
     }
   };
 
@@ -256,15 +243,11 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
        const result = await analyzeReadingAssessment(uri, readingSpeedText, durationSec);
        
        if (!result.transcript) {
-          // Fallback if API fails heavily
           Alert.alert("Notice", "AI Service busy. Using standard baseline.");
           handleScoreAndNext(0, 50); 
           return;
        }
        
-       // SCORING RULE: 
-       // 1. Calculate WPM Score: (Actual WPM / Expected WPM) * 100
-       // Age Expectations using effectiveAge
        let expectedWPM = 90;
        if (effectiveAge <= 7) expectedWPM = 60;
        else if (effectiveAge <= 9) expectedWPM = 90;
@@ -272,8 +255,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
        else expectedWPM = 150;
 
        const wpmScore = Math.min(100, (result.wpm / expectedWPM) * 100);
-       
-       // 2. Final Score: 70% Accuracy + 30% Speed
        const finalScore = (result.accuracy * 0.7) + (wpmScore * 0.3);
        
        handleScoreAndNext(0, finalScore);
@@ -290,31 +271,20 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     }
     const durationSec = (Date.now() - startTimeRef.current) / 1000;
     const minutes = durationSec / 60;
-    
-    // SCORING RULE:
-    // 1. Calculate WPM (1 word "apple" / time in minutes)
-    // Note: Assuming "apple" counts as 1 word.
     const wpm = 1 / minutes;
-    
-    // 2. Compare to age expectation (8-25 WPM). Using 15 as standard median.
     const expectedWPM = 15;
-    
-    // 3. Score = (Actual / Expected) * 100
     let score = (wpm / expectedWPM) * 100;
     score = Math.min(100, Math.max(0, Math.round(score)));
-    
     handleScoreAndNext(3, score);
   };
 
   const handleTraceQualitySubmit = () => {
-     // SCORING RULE: Rubric based via point density proxy
      const points = tracingPoints.length;
      let score = 0;
      if (points > 100) score = 95;      
      else if (points > 60) score = 80;  
      else if (points > 30) score = 50;  
      else score = 20;                   
-     
      handleScoreAndNext(4, score); 
   };
 
@@ -324,7 +294,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     if (subStep < totalItems - 1) {
        nextSubStep();
     } else {
-       // SCORING RULE: (Correct / Total) * 100
        const correctCount = newData.filter(Boolean).length;
        const score = Math.round((correctCount / totalItems) * 100);
        handleScoreAndNext(idx, score);
@@ -334,94 +303,79 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
   const finishAssessment = async (finalScores: number[]) => {
     setIsCalculatingPath(true);
     
-    // Artificial Delay to show the "Calculating..." screen
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // 1. Calculate Category Averages (Rule: Simple Average of components)
-    // Reading Avg: (Speed + Accuracy + Comprehension) / 3
-    const readingAvg = Math.round((finalScores[0] + finalScores[1] + finalScores[2]) / 3);
-    
-    // Writing Avg: (Speed + Quality + Grammar) / 3
-    const writingAvg = Math.round((finalScores[3] + finalScores[4] + finalScores[5]) / 3);
-    
-    // Spelling Avg: (Phonetic + Irregular + Accuracy) / 3
-    const spellingAvg = Math.round((finalScores[6] + finalScores[7] + finalScores[8]) / 3);
-    
-    // Overall Average
+    // Default Fallback Calculation in case API fails
+    const cleanScores = finalScores.map(s => isNaN(s) ? 0 : s);
+    const readingAvg = Math.round((cleanScores[0] + cleanScores[1] + cleanScores[2]) / 3);
+    const writingAvg = Math.round((cleanScores[3] + cleanScores[4] + cleanScores[5]) / 3);
+    const spellingAvg = Math.round((cleanScores[6] + cleanScores[7] + cleanScores[8]) / 3);
     const overallAverage = Math.round((readingAvg + writingAvg + spellingAvg) / 3);
 
     let assignedDiff = Difficulty.MODERATE;
-    let predictedFocus: string[] | null = null;
+    if (overallAverage >= 80) assignedDiff = Difficulty.MILD;
+    else if (overallAverage >= 60) assignedDiff = Difficulty.MODERATE;
+    else if (overallAverage >= 40) assignedDiff = Difficulty.SEVERE;
+    else assignedDiff = Difficulty.PROFOUND;
+    
+    const areas = [
+        { name: 'Reading', score: readingAvg },
+        { name: 'Writing', score: writingAvg },
+        { name: 'Spelling', score: spellingAvg }
+    ];
+    // Sort by weakness (lowest score first)
+    areas.sort((a, b) => a.score - b.score);
+    let finalFocusOrder: string[] = areas.map(a => a.name);
 
-    // --- STEP 4: PREDICTION API CALL ---
     try {
         const payload = {
-            age: effectiveAge, 
-            reading_speed: finalScores[0],
-            reading_accuracy: finalScores[1],
-            reading_comprehension: finalScores[2],
-            writing_speed: finalScores[3],
-            writing_quality: finalScores[4],
-            grammar_sentence: finalScores[5],
-            phonetic_spelling: finalScores[6],
-            irregular_word_spelling: finalScores[7],
-            spelling_accuracy: finalScores[8]
+            age: effectiveAge || 8.0, 
+            reading_speed: cleanScores[0],
+            reading_accuracy: cleanScores[1],
+            reading_comprehension: cleanScores[2],
+            writing_speed: cleanScores[3],
+            writing_quality: cleanScores[4],
+            grammar_sentence: cleanScores[5],
+            phonetic_spelling: cleanScores[6],
+            irregular_word_spelling: cleanScores[7],
+            spelling_accuracy: cleanScores[8]
         };
 
         const response = await fetch('https://lexilearnapp.onrender.com/predict', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json' 
-            },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify(payload)
         });
 
         if (response.ok) {
             const data = await response.json();
             if (data.predicted_difficulty) {
-                const apiDiff = data.predicted_difficulty.charAt(0).toUpperCase() + data.predicted_difficulty.slice(1).toLowerCase();
-                if (Object.values(Difficulty).includes(apiDiff as Difficulty)) {
-                    assignedDiff = apiDiff as Difficulty;
-                }
+                const diffLower = data.predicted_difficulty.toLowerCase();
+                if (diffLower.includes('mild')) assignedDiff = Difficulty.MILD;
+                else if (diffLower.includes('moderate')) assignedDiff = Difficulty.MODERATE;
+                else if (diffLower.includes('severe')) assignedDiff = Difficulty.SEVERE;
+                else if (diffLower.includes('profound')) assignedDiff = Difficulty.PROFOUND;
             }
             if (data.focus_areas && Array.isArray(data.focus_areas)) {
-                const focusNames = data.focus_areas.map((f: any) => f.name);
-                predictedFocus = focusNames;
-                setApiFocusOrder(focusNames);
+                // API returns ordered list: [Weakest (Primary), Secondary, Strongest (Last)]
+                finalFocusOrder = data.focus_areas.map((f: any) => f.name);
             }
-        } else {
-            console.warn(`API responded with status: ${response.status}`);
-            throw new Error(`API Error: ${response.status}`);
         }
     } catch (error: any) {
-        console.warn("Prediction API failed, using local fallback rules.", error);
-        
-        // Show specific alert for server connection issues
-        if (error.message && error.message.includes("Network request failed")) {
-             Alert.alert("Server Unreachable", "Could not connect to the prediction server. Using offline fallback rules. Please check if your server allows CORS.");
-        } else if (error.message && error.message.includes("API Error: 503")) {
-             Alert.alert("Server Busy", "The prediction server is starting up (cold start). Using offline fallback rules.");
-        }
-
-        // --- FALLBACK LOGIC BASED ON PROMPT RULES ---
-        if (overallAverage >= 65) assignedDiff = Difficulty.MILD;
-        else if (overallAverage >= 40) assignedDiff = Difficulty.MODERATE;
-        else if (overallAverage >= 20) assignedDiff = Difficulty.SEVERE;
-        else assignedDiff = Difficulty.PROFOUND;
-        setApiFocusOrder(null); 
+        console.warn("Prediction API failed/offline. Using local calculations.");
     }
 
     const assessmentScores: AssessmentScores = {
-        readingSpeed: finalScores[0], readingAccuracy: finalScores[1], readingComprehension: finalScores[2],
-        writingSpeed: finalScores[3], writingQuality: finalScores[4], grammar: finalScores[5],
-        phoneticSpelling: finalScores[6], irregularSpelling: finalScores[7], spellingAccuracy: finalScores[8],
-        overallAverage
+        readingSpeed: cleanScores[0], readingAccuracy: cleanScores[1], readingComprehension: cleanScores[2],
+        writingSpeed: cleanScores[3], writingQuality: cleanScores[4], grammar: cleanScores[5],
+        phoneticSpelling: cleanScores[6], irregularSpelling: cleanScores[7], spellingAccuracy: cleanScores[8],
+        overallAverage,
+        focusAreas: finalFocusOrder
     };
 
     const updatedProfile: UserProfile = { ...user, assessmentComplete: true, assignedDifficulty: assignedDiff, assessmentScores };
 
-    // --- STEP 4: SAVE TO FIRESTORE ---
+    setCalculatedProfile(updatedProfile);
+    setIsCalculatingPath(false);
+
     if (user.uid) {
         try {
             await setDoc(doc(db, "users", user.uid), { 
@@ -433,8 +387,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
             console.error("Error saving assessment results:", e);
         }
     }
-    setCalculatedProfile(updatedProfile);
-    setIsCalculatingPath(false);
   };
 
   const renderTask = () => {
@@ -444,13 +396,13 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                 <Text style={styles.instructionText}>Read Aloud</Text>
                 <View style={styles.passageContainer}>
                     <TouchableOpacity onPress={() => playTTS(readingSpeedText)} style={styles.audioButton}>
-                        <Volume2 size={24} stroke="#2563EB" />
+                        <Volume2 size={24} {...({color: "#2563EB"} as any)} />
                     </TouchableOpacity>
                     <Text style={styles.passageText}>{readingSpeedText}</Text>
                 </View>
                 {recording ? (
                     <TouchableOpacity onPress={handleReadingSpeedStop} style={styles.stopButton} disabled={isProcessing}>
-                        {isProcessing ? <ActivityIndicator color="#FFF" /> : <Square stroke="#FFF" {...({fill: "#FFF"} as any)} size={20} />}
+                        {isProcessing ? <ActivityIndicator color="#FFF" /> : <Square {...({color: "#FFF"} as any)} {...({fill: "#FFF"} as any)} size={20} />}
                         <Text style={styles.buttonText}>{isProcessing ? "Analyzing..." : "Stop & Submit"}</Text>
                     </TouchableOpacity>
                 ) : isProcessing ? (
@@ -462,15 +414,12 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
              <View style={styles.centerCol}>
                 <Text style={styles.instructionText}>Write the word:</Text>
                 <Text style={styles.targetWord}>{writingSpeedTarget}</Text>
-                <View 
-                  style={styles.drawArea}
-                  {...panResponder.panHandlers}
-                >
+                <View style={styles.drawArea} {...panResponder.panHandlers}>
                    <Svg height="100%" width="100%">
                       <Path d={currentPath} stroke="#4A90E2" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                    </Svg>
                    <TouchableOpacity onPress={() => {setCurrentPath(''); setTracingPoints([])}} style={styles.clearButton}>
-                      <Eraser size={20} stroke="#000" />
+                      <Eraser size={20} {...({color: "#000"} as any)} />
                    </TouchableOpacity>
                 </View>
                 <TouchableOpacity onPress={handleWritingSpeedSubmit} style={styles.primaryButton}>
@@ -481,10 +430,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
           case 4: return (
             <View style={styles.centerCol}>
                <Text style={styles.instructionText}>Trace the letter 'a' for Quality Check</Text>
-               <View 
-                 style={styles.drawArea}
-                 {...panResponder.panHandlers}
-               >
+               <View style={styles.drawArea} {...panResponder.panHandlers}>
                   <Svg height="100%" width="100%" viewBox={traceViewBox}>
                      <Path d={tracePath} stroke="#b0c4de" strokeWidth="10" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="15,15" opacity={0.8} />
                      <SvgCircle cx="200" cy="100" r="8" fill="#4A90E2" />
@@ -492,7 +438,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                      <Path d={currentPath} stroke="#4A90E2" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                   <TouchableOpacity onPress={() => {setCurrentPath(''); setTracingPoints([])}} style={styles.clearButton}>
-                     <Eraser size={20} stroke="#000" />
+                     <Eraser size={20} {...({color: "#000"} as any)} />
                   </TouchableOpacity>
                </View>
                <TouchableOpacity onPress={handleTraceQualitySubmit} style={styles.primaryButton}>
@@ -511,7 +457,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                 data = readingAccData;
                 question = `Find: "${data[subStep].target}"`;
                 options = data[subStep].options;
-                showAudio = true; // Added TTS for Task 1
+                showAudio = true;
                 audioTarget = data[subStep].target;
             } else if (currentTaskIndex === 2) {
                 data = readingCompData;
@@ -546,20 +492,17 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                     <View style={styles.centerCol}>
                         {currentTaskIndex === 2 && (
                             <View style={[styles.passageContainer, {backgroundColor: '#EFF6FF', borderColor: '#DBEAFE'}]}>
-                                <TouchableOpacity onPress={() => playTTS(readingCompPassage)} style={styles.audioButtonSmall}><Volume2 size={20} stroke="#4A90E2" /></TouchableOpacity>
+                                <TouchableOpacity onPress={() => playTTS(readingCompPassage)} style={styles.audioButtonSmall}><Volume2 size={20} {...({color: "#4A90E2"} as any)} /></TouchableOpacity>
                                 <Text style={styles.passageTextSmall}>{readingCompPassage}</Text>
                             </View>
                         )}
-                        
                         <Text style={styles.questionText}>{question}</Text>
-                        
                         {showAudio && (
                             <TouchableOpacity onPress={() => playTTS(audioTarget)} style={[styles.audioButton, {position: 'relative', marginBottom: 24, top: 0, right: 0}]}>
-                                <Volume2 size={24} stroke="#2563EB" />
+                                <Volume2 size={24} {...({color: "#2563EB"} as any)} />
                                 <Text style={{marginLeft: 8, color: '#2563EB', fontWeight: 'bold'}}>Hear Word</Text>
                             </TouchableOpacity>
                         )}
-
                         <View style={styles.optionsContainer}>
                             {options.map((opt, i) => (
                                 <TouchableOpacity 
@@ -572,7 +515,6 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                                         if (currentTaskIndex === 6) correct = opt === phoneticData[subStep].target;
                                         if (currentTaskIndex === 7) correct = opt === irregularData[subStep].target;
                                         if (currentTaskIndex === 8) correct = opt === spellingAccData[subStep].target;
-                                        
                                         handleSelection(correct, data.length, currentTaskIndex);
                                     }} 
                                     style={styles.optionButton}
@@ -587,43 +529,49 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
             return <View><Text>Task {currentTaskIndex}</Text><TouchableOpacity onPress={() => handleScoreAndNext(currentTaskIndex, 100)}><Text>Skip (Demo)</Text></TouchableOpacity></View>;
       }
   }
-
-  // --- RENDER ---
   
   if (isCalculatingPath) {
       return (
           <View style={styles.loadingContainer}>
               <View style={styles.loadingCard}>
-                  <Sparkles size={64} stroke="#4A90E2" style={styles.loadingIcon} />
-                  <Text style={styles.loadingTitle}>Calculating learning path...</Text>
-                  <Text style={styles.loadingDesc}>Analyzing performance data based on assessment rules.</Text>
+                  <View style={styles.loadingIcon}>
+                    <Sparkles size={64} {...({color: "#4A90E2"} as any)} />
+                  </View>
+                  <Text style={styles.loadingTitle}>Calculating Learning Path...</Text>
+                  <Text style={styles.loadingDesc}>AI is analyzing your performance and predicting the optimal difficulty level.</Text>
                   <ActivityIndicator size="large" color="#4A90E2" style={{marginTop: 32}} />
               </View>
           </View>
       );
   }
 
-  if (calculatedProfile) {
-     const scores = calculatedProfile.assessmentScores!;
-     // Re-calculate local display variables for the result screen
+  if (calculatedProfile && calculatedProfile.assessmentScores) {
+     const scores = calculatedProfile.assessmentScores;
+     
+     // Recalculate averages for display
      const readingAvg = Math.round((scores.readingSpeed + scores.readingAccuracy + scores.readingComprehension) / 3);
      const writingAvg = Math.round((scores.writingSpeed + scores.writingQuality + scores.grammar) / 3);
      const spellingAvg = Math.round((scores.phoneticSpelling + scores.irregularSpelling + scores.spellingAccuracy) / 3);
+     
+     const areasMap: Record<string, number> = {
+         'Reading': readingAvg,
+         'Writing': writingAvg,
+         'Spelling': spellingAvg
+     };
 
-     // Sort to find Primary (lowest), Secondary (middle), Last (highest)
-     let focusAreas = [
-        { name: 'Reading', score: readingAvg },
-        { name: 'Writing', score: writingAvg },
-        { name: 'Spelling', score: spellingAvg }
-     ];
-
-     if (apiFocusOrder && apiFocusOrder.length === 3) {
-         // Sort based on API prediction order (Weakest to Strongest) if available
-         focusAreas.sort((a, b) => {
-             return apiFocusOrder.indexOf(a.name) - apiFocusOrder.indexOf(b.name);
-         });
+     let focusAreas;
+     if (scores.focusAreas && scores.focusAreas.length > 0) {
+         // Use the order from the API
+         focusAreas = scores.focusAreas.map(name => ({
+             name,
+             score: areasMap[name] || 0
+         }));
      } else {
-         // Default fallback sort: Ascending score (Lowest score = Primary Focus)
+         focusAreas = [
+            { name: 'Reading', score: readingAvg },
+            { name: 'Writing', score: writingAvg },
+            { name: 'Spelling', score: spellingAvg }
+         ];
          focusAreas.sort((a, b) => a.score - b.score);
      }
 
@@ -631,55 +579,61 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
         <ScrollView contentContainerStyle={styles.resultScroll} style={styles.container}>
              <View style={styles.resultCard}>
                  <View style={styles.trophyIcon}>
-                    <Trophy size={48} stroke="#CA8A04" />
+                    <Trophy size={48} {...({color: "#CA8A04"} as any)} />
                  </View>
-                 <Text style={styles.resultTitle}>Assessment Complete!</Text>
-                 <Text style={styles.resultSubtitle}>Learning path customized.</Text>
+                 <Text style={styles.resultTitle}>AI Analysis Complete!</Text>
+                 <Text style={styles.resultSubtitle}>Based on your assessment performance</Text>
                  
                  <View style={styles.resultLevelBox}>
-                    <Text style={styles.levelLabel}>Recommended Level</Text>
+                    <Text style={styles.levelLabel}>Recommended Difficulty</Text>
                     <View style={styles.levelRow}>
                         <Text style={styles.levelText}>{calculatedProfile.assignedDifficulty}</Text>
-                        <Star {...({fill: "#4A90E2"} as any)} stroke="#4A90E2" size={32} />
+                        <Star {...({fill: "#4A90E2"} as any)} {...({color: "#4A90E2"} as any)} size={32} />
                     </View>
                  </View>
 
                  <View style={styles.focusContainer}>
-                    <Text style={styles.focusHeader}>Your Learning Focus</Text>
+                    <Text style={styles.focusHeader}>Predicted Focus Areas</Text>
                     
-                    {/* Primary Focus */}
-                    <View style={[styles.focusItem, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
+                    {/* PRIMARY FOCUS (Weakest) */}
+                    <View style={[styles.focusItem, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
                         <View style={styles.focusRow}>
-                            <AlertCircle stroke="#DC2626" size={24} />
+                            <AlertCircle {...({color: "#EF4444"} as any)} size={28} />
                             <View style={{flex: 1}}>
-                                <Text style={[styles.focusLabel, {color: '#B91C1C'}]}>Primary Focus</Text>
-                                <Text style={styles.focusValue}>{focusAreas[0].name}</Text>
+                                <Text style={[styles.focusLabel, {color: '#B91C1C'}]}>Primary Focus (Needs Attention)</Text>
+                                <Text style={styles.focusValue}>{focusAreas[0]?.name || 'N/A'}</Text>
                             </View>
-                            <Text style={styles.focusScore}>{focusAreas[0].score}%</Text>
+                            <View style={styles.scoreBadge}>
+                                <Text style={[styles.focusScore, {color: '#B91C1C'}]}>{focusAreas[0]?.score || 0}%</Text>
+                            </View>
                         </View>
                     </View>
 
-                    {/* Secondary Focus */}
-                    <View style={[styles.focusItem, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                    {/* SECONDARY FOCUS */}
+                    <View style={[styles.focusItem, { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }]}>
                         <View style={styles.focusRow}>
-                            <TrendingUp stroke="#D97706" size={24} />
+                            <Activity {...({color: "#D97706"} as any)} size={28} />
                             <View style={{flex: 1}}>
                                 <Text style={[styles.focusLabel, {color: '#B45309'}]}>Secondary Focus</Text>
-                                <Text style={styles.focusValue}>{focusAreas[1].name}</Text>
+                                <Text style={styles.focusValue}>{focusAreas[1]?.name || 'N/A'}</Text>
                             </View>
-                            <Text style={styles.focusScore}>{focusAreas[1].score}%</Text>
+                            <View style={styles.scoreBadge}>
+                                <Text style={[styles.focusScore, {color: '#B45309'}]}>{focusAreas[1]?.score || 0}%</Text>
+                            </View>
                         </View>
                     </View>
 
-                    {/* Tertiary Focus (Last Focus) */}
-                    <View style={[styles.focusItem, { backgroundColor: '#DCFCE7', borderColor: '#86EFAC' }]}>
+                    {/* TERTIARY / LAST FOCUS (Strongest) */}
+                    <View style={[styles.focusItem, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }]}>
                         <View style={styles.focusRow}>
-                            <CheckCircle stroke="#16A34A" size={24} />
+                            <CheckCircle {...({color: "#16A34A"} as any)} size={28} />
                             <View style={{flex: 1}}>
-                                <Text style={[styles.focusLabel, {color: '#15803D'}]}>Last Focus</Text>
-                                <Text style={styles.focusValue}>{focusAreas[2].name}</Text>
+                                <Text style={[styles.focusLabel, {color: '#15803D'}]}>Last Focus (Strength)</Text>
+                                <Text style={styles.focusValue}>{focusAreas[2]?.name || 'N/A'}</Text>
                             </View>
-                            <Text style={styles.focusScore}>{focusAreas[2].score}%</Text>
+                            <View style={styles.scoreBadge}>
+                                <Text style={[styles.focusScore, {color: '#15803D'}]}>{focusAreas[2]?.score || 0}%</Text>
+                            </View>
                         </View>
                     </View>
                  </View>
@@ -688,7 +642,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                     onPress={() => onComplete(calculatedProfile)}
                     style={styles.primaryButton}
                  >
-                    <Text style={styles.buttonText}>Continue to Learning Path</Text>
+                    <Text style={styles.buttonText}>Continue to Student Dashboard</Text>
                  </TouchableOpacity>
              </View>
         </ScrollView>
@@ -709,7 +663,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
          {gameState === 'INTRO' ? (
              <View style={styles.centerCol}>
                 <View style={styles.iconCircle}>
-                   <Brain size={48} stroke="#4A90E2" />
+                   <Brain size={48} {...({color: "#4A90E2"} as any)} />
                 </View>
                 <Text style={styles.taskTitle}>{TASKS[currentTaskIndex]}</Text>
                 <Text style={styles.taskDesc}>
@@ -717,7 +671,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                 </Text>
                 {currentTaskIndex === 0 ? (
                     <TouchableOpacity onPress={handleReadingSpeedStart} style={[styles.primaryButton, {flexDirection: 'row', gap: 12}]}>
-                        <Mic stroke="#FFF" />
+                        <Mic {...({color: "#FFF"} as any)} />
                         <Text style={styles.buttonText}>Start Recording</Text>
                     </TouchableOpacity>
                 ) : (
@@ -733,330 +687,54 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FDFBF7',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 16,
-  },
-  progressRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  progressLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#9CA3AF',
-  },
-  progressBarBg: {
-    height: 12,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 6,
-    marginBottom: 32,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#4A90E2',
-  },
-  taskCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    padding: 24,
-    borderWidth: 2,
-    borderColor: '#EFF6FF',
-    minHeight: 500,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  centerCol: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  iconCircle: {
-    width: 96,
-    height: 96,
-    backgroundColor: '#DBEAFE',
-    borderRadius: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  taskTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-    color: '#1F2937',
-  },
-  taskDesc: {
-    color: '#6B7280',
-    marginBottom: 32,
-    textAlign: 'center',
-    fontSize: 18,
-  },
-  primaryButton: {
-    paddingHorizontal: 48,
-    paddingVertical: 16,
-    backgroundColor: '#4A90E2',
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 18,
-  },
-  instructionText: {
-    color: '#6B7280',
-    fontWeight: 'bold',
-    marginBottom: 16,
-    fontSize: 16,
-  },
-  passageContainer: {
-    backgroundColor: '#FFFBEB',
-    padding: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#FDE68A',
-    marginBottom: 24,
-    width: '100%',
-    position: 'relative',
-  },
-  audioButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 8,
-    backgroundColor: '#DBEAFE',
-    borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  passageText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-    marginTop: 16,
-    lineHeight: 30,
-  },
-  stopButton: {
-    width: '100%',
-    paddingVertical: 16,
-    backgroundColor: '#EF4444',
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  hintText: {
-    color: '#6B7280',
-    fontSize: 16,
-  },
-  targetWord: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    marginBottom: 24,
-    color: '#4A90E2',
-  },
-  drawArea: {
-    width: 300,
-    height: 300,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-    marginBottom: 24,
-    overflow: 'hidden',
-  },
-  clearButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 8,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 999,
-  },
-  audioButtonSmall: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 8,
-  },
-  passageTextSmall: {
-    fontSize: 18,
-    color: '#1F2937',
-    paddingRight: 40,
-  },
-  questionText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 24,
-    textAlign: 'center',
-    color: '#1F2937',
-  },
-  optionsContainer: {
-    width: '100%',
-    gap: 12,
-  },
-  optionButton: {
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-  },
-  optionText: {
-    fontWeight: 'bold',
-    fontSize: 18,
-    color: '#374151',
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FDFBF7',
-  },
-  loadingCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 32,
-    borderRadius: 24,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    width: '80%',
-    maxWidth: 400,
-  },
-  loadingIcon: {
-    marginBottom: 24,
-  },
-  loadingTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  loadingDesc: {
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  resultScroll: {
-    flexGrow: 1,
-    padding: 16,
-    justifyContent: 'center',
-  },
-  resultCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 24,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    alignItems: 'center',
-    width: '100%',
-  },
-  trophyIcon: {
-    width: 80,
-    height: 80,
-    backgroundColor: '#FEF9C3',
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  resultTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  resultSubtitle: {
-    fontSize: 16,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 32,
-  },
-  resultLevelBox: {
-    width: '100%',
-    backgroundColor: '#EFF6FF',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-    marginBottom: 32,
-  },
-  levelLabel: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#6B7280',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  levelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  levelText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1D4ED8',
-  },
-  focusContainer: {
-    width: '100%',
-    marginBottom: 32,
-  },
-  focusHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  focusItem: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-  },
-  focusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  focusLabel: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  focusValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  focusScore: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#374151',
-  },
+  container: { flex: 1, backgroundColor: '#FDFBF7' },
+  scrollContent: { flexGrow: 1, padding: 16 },
+  progressRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressLabel: { fontSize: 14, fontWeight: 'bold', color: '#9CA3AF' },
+  progressBarBg: { height: 12, backgroundColor: '#E5E7EB', borderRadius: 6, marginBottom: 32, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#4A90E2' },
+  taskCard: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 24, borderWidth: 2, borderColor: '#EFF6FF', minHeight: 500, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  centerCol: { alignItems: 'center', width: '100%' },
+  iconCircle: { width: 96, height: 96, backgroundColor: '#DBEAFE', borderRadius: 48, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  taskTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, textAlign: 'center', color: '#1F2937' },
+  taskDesc: { color: '#6B7280', marginBottom: 32, textAlign: 'center', fontSize: 18 },
+  primaryButton: { paddingHorizontal: 48, paddingVertical: 16, backgroundColor: '#4A90E2', borderRadius: 999, alignItems: 'center', justifyContent: 'center', width: '100%' },
+  buttonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 18 },
+  instructionText: { color: '#6B7280', fontWeight: 'bold', marginBottom: 16, fontSize: 16 },
+  passageContainer: { backgroundColor: '#FFFBEB', padding: 24, borderRadius: 12, borderWidth: 2, borderColor: '#FDE68A', marginBottom: 24, width: '100%', position: 'relative' },
+  audioButton: { position: 'absolute', top: 8, right: 8, padding: 8, backgroundColor: '#DBEAFE', borderRadius: 999, flexDirection: 'row', alignItems: 'center' },
+  passageText: { fontSize: 20, fontWeight: 'bold', color: '#000', marginTop: 16, lineHeight: 30 },
+  stopButton: { width: '100%', paddingVertical: 16, backgroundColor: '#EF4444', borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  hintText: { color: '#6B7280', fontSize: 16 },
+  targetWord: { fontSize: 48, fontWeight: 'bold', marginBottom: 24, color: '#4A90E2' },
+  drawArea: { width: 300, height: 300, backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 2, borderColor: '#D1D5DB', marginBottom: 24, overflow: 'hidden' },
+  clearButton: { position: 'absolute', top: 8, right: 8, padding: 8, backgroundColor: '#F3F4F6', borderRadius: 999 },
+  audioButtonSmall: { position: 'absolute', top: 8, right: 8, padding: 8 },
+  passageTextSmall: { fontSize: 18, color: '#1F2937', paddingRight: 40 },
+  questionText: { fontSize: 24, fontWeight: 'bold', marginBottom: 24, textAlign: 'center', color: '#1F2937' },
+  optionsContainer: { width: '100%', gap: 12 },
+  optionButton: { padding: 16, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#E5E7EB', borderRadius: 12 },
+  optionText: { fontWeight: 'bold', fontSize: 18, color: '#374151', textAlign: 'center' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FDFBF7' },
+  loadingCard: { backgroundColor: '#FFFFFF', padding: 32, borderRadius: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4, width: '80%', maxWidth: 400 },
+  loadingIcon: { marginBottom: 24 },
+  loadingTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F2937', textAlign: 'center', marginBottom: 8 },
+  loadingDesc: { color: '#6B7280', textAlign: 'center', marginBottom: 24 },
+  resultScroll: { flexGrow: 1, padding: 16, justifyContent: 'center' },
+  resultCard: { backgroundColor: '#FFFFFF', padding: 24, borderRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4, alignItems: 'center', width: '100%' },
+  trophyIcon: { width: 80, height: 80, backgroundColor: '#FEF9C3', borderRadius: 999, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  resultTitle: { fontSize: 28, fontWeight: 'bold', color: '#1F2937', textAlign: 'center', marginBottom: 8 },
+  resultSubtitle: { fontSize: 16, color: '#6B7280', textAlign: 'center', marginBottom: 32 },
+  resultLevelBox: { width: '100%', backgroundColor: '#EFF6FF', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#DBEAFE', marginBottom: 32 },
+  levelLabel: { fontSize: 12, fontWeight: 'bold', color: '#6B7280', textTransform: 'uppercase', marginBottom: 4 },
+  levelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  levelText: { fontSize: 24, fontWeight: 'bold', color: '#1D4ED8' },
+  focusContainer: { width: '100%', marginBottom: 32 },
+  focusHeader: { fontSize: 18, fontWeight: 'bold', color: '#1F2937', marginBottom: 16 },
+  focusItem: { borderWidth: 2, borderRadius: 16, padding: 16, marginBottom: 12 },
+  focusRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  focusLabel: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 2 },
+  focusValue: { fontSize: 18, fontWeight: 'bold', color: '#1F2937' },
+  scoreBadge: { backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, shadowColor: '#000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  focusScore: { fontSize: 16, fontWeight: 'bold' },
 });

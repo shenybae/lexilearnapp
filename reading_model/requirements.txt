@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+transformers
+torch
+bitsandbytes
+safetensors
+python-multipart
+torchaudio

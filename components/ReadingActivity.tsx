@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform, Alert, ScrollView } from 'react-native';
 import { ReadingItem, Difficulty } from '../types';
@@ -161,10 +160,10 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
   };
 
   const getFeedbackStyles = (score: number) => {
-      if (score >= 90) return { bg: '#DCFCE7', border: '#86EFAC', text: '#166534', icon: <Star stroke="#16A34A" {...({fill: "#16A34A"} as any)} size={32} /> };
-      if (score >= 70) return { bg: '#DBEAFE', border: '#93C5FD', text: '#1E40AF', icon: <ThumbsUp stroke="#2563EB" size={32} /> };
-      if (score >= 40) return { bg: '#FFEDD5', border: '#FDBA74', text: '#9A3412', icon: <AlertCircle stroke="#EA580C" size={32} /> };
-      return { bg: '#FEE2E2', border: '#FCA5A5', text: '#991B1B', icon: <AlertCircle stroke="#DC2626" size={32} /> };
+      if (score >= 90) return { bg: '#DCFCE7', border: '#86EFAC', text: '#166534', icon: <Star {...({color: "#16A34A"} as any)} {...({fill: "#16A34A"} as any)} size={32} /> };
+      if (score >= 70) return { bg: '#DBEAFE', border: '#93C5FD', text: '#1E40AF', icon: <ThumbsUp {...({color: "#2563EB"} as any)} size={32} /> };
+      if (score >= 40) return { bg: '#FFEDD5', border: '#FDBA74', text: '#9A3412', icon: <AlertCircle {...({color: "#EA580C"} as any)} size={32} /> };
+      return { bg: '#FEE2E2', border: '#FCA5A5', text: '#991B1B', icon: <AlertCircle {...({color: "#DC2626"} as any)} size={32} /> };
   };
 
   const styleConfig = feedback ? getFeedbackStyles(feedback.score) : null;
@@ -173,7 +172,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
     <View style={styles.container}>
        <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft stroke="#4B5563" size={24} />
+          <ChevronLeft {...({color: "#4B5563"} as any)} size={24} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -190,7 +189,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
           disabled={currentIndex === 0}
           style={[styles.navButton, styles.navLeft, currentIndex === 0 && {opacity: 0.3}]}
         >
-          <ChevronLeft size={24} stroke="#000" />
+          <ChevronLeft size={24} {...({color: "#000"} as any)} />
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -202,7 +201,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
             (currentIndex === items.length - 1 || currentIndex >= unlockedLevel) && {opacity: 0.3, backgroundColor: '#F3F4F6'}
           ]}
         >
-          <ChevronRight size={24} stroke={currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} />
+          <ChevronRight size={24} {...({color: currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} as any)} />
         </TouchableOpacity>
 
         <ScrollView 
@@ -223,7 +222,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
                 style={[styles.audioButton, {backgroundColor: '#EFF6FF'}]}
               >
                 <View style={[styles.iconCircle, {backgroundColor: '#3B82F6'}]}>
-                  <Volume2 size={24} stroke="#FFF" />
+                  <Volume2 size={24} {...({color: "#FFF"} as any)} />
                 </View>
                 <Text style={[styles.audioButtonText, {color: '#1D4ED8'}]}>Hear Word</Text>
               </TouchableOpacity>
@@ -233,7 +232,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
                 style={[styles.audioButton, {backgroundColor: '#FAF5FF'}]}
               >
                 <View style={[styles.iconCircle, {backgroundColor: '#A855F7'}]}>
-                  <Volume2 size={24} stroke="#FFF" />
+                  <Volume2 size={24} {...({color: "#FFF"} as any)} />
                 </View>
                 <Text style={[styles.audioButtonText, {color: '#7E22CE'}]}>Hear Sentence</Text>
               </TouchableOpacity>
@@ -246,7 +245,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
                   disabled={isProcessing}
                   style={[styles.recordButton, {backgroundColor: '#66BB6A'}]}
                 >
-                  <Mic size={28} stroke="#FFF" />
+                  <Mic size={28} {...({color: "#FFF"} as any)} />
                   <Text style={styles.recordButtonText}>{isProcessing ? 'Checking...' : 'Tap to Read'}</Text>
                 </TouchableOpacity>
               ) : (
@@ -255,7 +254,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
                   style={[styles.recordButton, {backgroundColor: '#EF4444'}]}
                   disabled={isProcessing}
                 >
-                  {isProcessing ? <ActivityIndicator color="#FFF" /> : <Square size={28} stroke="#FFF" {...({fill: "#FFF"} as any)} />}
+                  {isProcessing ? <ActivityIndicator color="#FFF" /> : <Square size={28} {...({color: "#FFF"} as any)} {...({fill: "#FFF"} as any)} />}
                   <Text style={styles.recordButtonText}>{isProcessing ? 'Processing...' : 'Stop Recording'}</Text>
                 </TouchableOpacity>
               )}
@@ -283,7 +282,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
                 {feedback.transcript && (
                    <View style={styles.transcriptBox}>
                       <View style={styles.transcriptLabelRow}>
-                         <MessageSquare size={12} stroke="#6B7280" />
+                         <MessageSquare size={12} {...({color: "#6B7280"} as any)} />
                          <Text style={styles.transcriptLabel}>You said:</Text>
                       </View>
                       <Text style={styles.transcriptText}>"{feedback.transcript}"</Text>
@@ -298,7 +297,7 @@ export const ReadingActivity: React.FC<ReadingActivityProps> = ({ items, onCompl
                  {currentIndex < items.length - 1 && feedback.score > 60 && (
                      <TouchableOpacity onPress={nextWord} style={styles.nextLink}>
                         <Text style={styles.nextLinkText}>Next Word</Text>
-                        <ArrowRight size={20} stroke="#4A90E2" />
+                        <ArrowRight size={20} {...({color: "#4A90E2"} as any)} />
                      </TouchableOpacity>
                  )}
               </View>

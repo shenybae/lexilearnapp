@@ -1,14 +1,13 @@
 
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Modal, Pressable, Alert, StyleSheet } from 'react-native';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from '../firebaseConfig';
+import { auth, db, signInWithEmailAndPassword, signOut, doc, getDoc, collection, query, where, getDocs } from '../firebaseConfig';
 import { Brain, Lock, Mail, AlertCircle, Users, ClipboardList, ChevronDown, ShieldCheck } from 'lucide-react-native';
-import { Difficulty } from '../types';
+import { UserProfile, Difficulty } from '../types';
 
 interface LoginProps {
   onSignUpClick?: () => void;
-  onLoginSuccess: () => void; // New prop for manual navigation trigger
+  onLoginSuccess: (user?: UserProfile) => void;
 }
 
 export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSuccess }) => {
@@ -28,100 +27,154 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
     setLoading(true);
     setError('');
 
-    try {
-      // 1. Authenticate with Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
+    const cleanedEmail = email.trim();
+    const cleanedPassword = password.trim();
 
-      // 2. Fetch User Profile to verify Role
-      const userDocRef = doc(db, "users", uid);
-      const userSnap = await getDoc(userDocRef);
-
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        const dbRole = userData.role || 'Guardian';
-
-        // 3. Strict Role Check
-        if (dbRole !== role) {
-          // Role mismatch: Force logout
-          await signOut(auth);
-          setError(`Access Denied. You are registered as a ${dbRole}, but tried to log in as ${role === 'Admin' ? 'an Administrator' : 'a Guardian'}.`);
-          setLoading(false);
-          return;
-        }
-
-        // Role matches -> Call onLoginSuccess to tell App.tsx to navigate
-        onLoginSuccess();
+    if (role === 'Admin') {
+        let manualLoginSuccess = false;
         
-      } else {
-        // Edge case: User in Auth but not in Firestore
-        await signOut(auth);
-        setError("Account data not found. Please contact support.");
-      }
-
-    } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setError('Invalid email or password.');
-      } else if (err.code === 'auth/invalid-email') {
-        setError('Please enter a valid email address.');
-      } else {
-        setError('Failed to log in. Please check your connection.');
-      }
-    } finally {
-      // If successful, loading stays true until App.tsx unmounts this screen
-      // If error, we set loading false here
-      if (auth.currentUser === null) {
-        setLoading(false);
-      }
-    }
-  };
-
-  // Function to create/ensure Admin account exists in Auth and Firestore
-  const handleSeedAdmin = async () => {
-    setLoading(true);
-    setError('');
-    const adminEmail = "admin@lexilearn.com";
-    const adminPass = "admin123";
-
-    const adminProfile = {
-        email: adminEmail,
-        role: 'Admin',
-        status: 'APPROVED',
-        childName: 'System Admin',
-        assessmentComplete: true,
-        assignedDifficulty: Difficulty.MILD,
-        progressHistory: []
-    };
-
-    try {
-        // 1. Try to Create User
+        // 1. Try Manual Firestore Check (Requested Feature)
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, adminEmail, adminPass);
-            // If successful, write to Firestore
-            await setDoc(doc(db, "users", userCredential.user.uid), {
-                ...adminProfile,
-                uid: userCredential.user.uid
-            });
-            Alert.alert("Success", "Admin account created! Logging in...");
-        } catch (createError: any) {
-            // 2. If exists, Try to Login
-            if (createError.code === 'auth/email-already-in-use') {
-                const userCredential = await signInWithEmailAndPassword(auth, adminEmail, adminPass);
-                // Update Firestore to ensure they have Admin role
-                await setDoc(doc(db, "users", userCredential.user.uid), {
-                    ...adminProfile,
-                    uid: userCredential.user.uid
-                }, { merge: true });
-                console.log("Admin logged in and profile updated.");
+            console.log(`Attempting Manual Admin Login for: ${cleanedEmail}`);
+            const adminsRef = collection(db, "admin");
+            // Exact match query
+            const q = query(adminsRef, where("email", "==", cleanedEmail), where("password", "==", cleanedPassword));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+                console.log("Manual Admin Document Found!");
+                // SUCCESS: Verified against Firestore credentials
+                const adminProfile: UserProfile = {
+                    uid: 'admin_manual_' + Date.now(),
+                    email: cleanedEmail,
+                    childName: 'Administrator',
+                    role: 'Admin',
+                    status: 'APPROVED',
+                    assessmentComplete: true,
+                    assignedDifficulty: Difficulty.MILD
+                };
+                onLoginSuccess(adminProfile);
+                return; 
             } else {
-                throw createError;
+                console.log("Manual Admin Check: No document matched.");
+            }
+        } catch (err: any) {
+            // If permission denied, it means rules haven't updated or restrict public access.
+            // We ignore this specific error and fall back to Standard Auth.
+            if (err.code !== 'permission-denied') {
+                console.warn("Manual check error:", err);
+            } else {
+                console.log("Manual check skipped due to permissions. Falling back to Auth.");
             }
         }
-    } catch (err: any) {
-        console.error("Seed Admin Error:", err);
-        Alert.alert("Error", err.message || "Could not initialize admin.");
-        setLoading(false); 
+
+        // 2. Standard Firebase Auth Fallback
+        try {
+            console.log("Attempting Firebase Auth Login...");
+            await signInWithEmailAndPassword(auth, cleanedEmail, cleanedPassword);
+            
+            // Verify if this email is in the admin whitelist
+            const adminsRef = collection(db, "admin");
+            const qAuth = query(adminsRef, where("email", "==", cleanedEmail));
+            
+            try {
+                const snapAuth = await getDocs(qAuth);
+                if (snapAuth.empty) {
+                    await signOut(auth);
+                    setError("Access Denied. Email not found in admin list.");
+                    setLoading(false);
+                    return;
+                }
+            } catch (permErr) {
+                console.warn("Could not verify admin list membership due to permissions.", permErr);
+            }
+
+            // Auth success
+            const adminProfileAuth: UserProfile = {
+                  uid: auth.currentUser?.uid || 'admin_auth',
+                  email: cleanedEmail,
+                  childName: 'Administrator',
+                  role: 'Admin',
+                  status: 'APPROVED',
+                  assessmentComplete: true,
+                  assignedDifficulty: Difficulty.MILD
+            };
+            onLoginSuccess(adminProfileAuth);
+
+        } catch (err: any) {
+            console.error("Admin Login Error", err);
+            if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+                setError("Invalid admin credentials. Please check your email and password.");
+            } else if (err.code === 'permission-denied') {
+                setError("Database Permission Error. Please check security rules.");
+            } else {
+                setError("Login failed. Please check your connection.");
+            }
+            setLoading(false);
+        }
+    } else {
+        // Guardian Login (Standard Flow)
+        try {
+          // 1. Authenticate
+          const userCredential = await signInWithEmailAndPassword(auth, cleanedEmail, cleanedPassword);
+          const uid = userCredential.user.uid;
+
+          // 2. Verify User Profile
+          const userDocRef = doc(db, "users", uid);
+          const userSnap = await getDoc(userDocRef);
+
+          if (userSnap.exists()) {
+            const userData = userSnap.data() as UserProfile;
+            const dbRole = userData.role || 'Guardian';
+
+            if (dbRole !== 'Guardian') {
+              await signOut(auth);
+              setError(`Access Denied. Account role is ${dbRole}, but tried to log in as Guardian.`);
+              setLoading(false);
+              return;
+            }
+            
+            // --- STRICT STATUS CHECKS ---
+            if (userData.status === 'REJECTED') {
+                await signOut(auth);
+                setError("Account application rejected. Contact support.");
+                setLoading(false);
+                return;
+            }
+
+            if (userData.status === 'PENDING') {
+                await signOut(auth);
+                // ALERT THE USER THEY MUST WAIT
+                Alert.alert(
+                    "Application Pending", 
+                    "Your account has not been approved by an administrator yet.\n\nPlease check your email or try again later."
+                );
+                setError("Account is pending approval.");
+                setLoading(false);
+                return;
+            }
+
+            // Success - Only reach here if APPROVED
+            onLoginSuccess(userData);
+            
+          } else {
+            // Document missing?
+            await signOut(auth);
+            setError("Account data not found. Please contact support.");
+            setLoading(false);
+          }
+
+        } catch (err: any) {
+          console.error(err);
+          if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+            setError('Invalid email or password.');
+          } else if (err.code === 'auth/invalid-email') {
+            setError('Please enter a valid email address.');
+          } else {
+            setError('Failed to log in. Please check your connection.');
+          }
+          setLoading(false);
+        }
     }
   };
 
@@ -130,7 +183,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
       <View style={styles.card}>
         <View style={styles.header}>
           <View style={styles.logoContainer}>
-            <Brain size={48} stroke="#4A90E2" />
+            <Brain size={48} {...({color: "#4A90E2"} as any)} />
           </View>
           <Text style={styles.title}>LexiLearn</Text>
           <Text style={styles.subtitle}>Dyslexia Support Platform</Text>
@@ -139,7 +192,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
         <View style={styles.form}>
           {error ? (
             <View style={styles.errorBox}>
-              <AlertCircle size={20} stroke="#DC2626" />
+              <AlertCircle size={20} {...({color: "#DC2626"} as any)} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
@@ -152,12 +205,12 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
               style={[styles.inputContainer, { borderColor: role === 'Admin' ? '#4A90E2' : '#E5E7EB' }]}
             >
               <View style={styles.iconPos}>
-                {role === 'Admin' ? <ShieldCheck size={20} stroke="#4A90E2" /> : <Users size={20} stroke="#9CA3AF" />}
+                {role === 'Admin' ? <ShieldCheck size={20} {...({color: "#4A90E2"} as any)} /> : <Users size={20} {...({color: "#9CA3AF"} as any)} />}
               </View>
               <Text style={[styles.inputText, role === 'Admin' && { fontWeight: 'bold', color: '#4A90E2' }]}>
                 {role === 'Guardian' ? 'Guardian / Student' : 'Administrator'}
               </Text>
-              <ChevronDown size={20} stroke="#9CA3AF" />
+              <ChevronDown size={20} {...({color: "#9CA3AF"} as any)} />
             </TouchableOpacity>
           </View>
 
@@ -167,11 +220,15 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
                <View style={styles.modalContent}>
                   <Text style={styles.modalHeader}>Select Account Type</Text>
                   <TouchableOpacity onPress={() => { setRole('Guardian'); setRoleModalVisible(false); }} style={styles.modalItem}>
-                    <Users size={24} stroke="#4B5563" style={{marginRight: 12}} />
+                    <View style={{marginRight: 12}}>
+                        <Users size={24} {...({color: "#4B5563"} as any)} />
+                    </View>
                     <Text style={styles.modalText}>Guardian / Student</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => { setRole('Admin'); setRoleModalVisible(false); }} style={[styles.modalItem, {borderBottomWidth: 0}]}>
-                    <ShieldCheck size={24} stroke="#4A90E2" style={{marginRight: 12}} />
+                    <View style={{marginRight: 12}}>
+                        <ShieldCheck size={24} {...({color: "#4A90E2"} as any)} />
+                    </View>
                     <Text style={styles.modalText}>Administrator</Text>
                   </TouchableOpacity>
                </View>
@@ -182,7 +239,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
             <Text style={styles.label}>Email Address</Text>
             <View style={styles.inputWrapper}>
               <View style={styles.iconPos}>
-                <Mail size={20} stroke="#9CA3AF" />
+                <Mail size={20} {...({color: "#9CA3AF"} as any)} />
               </View>
               <TextInput 
                 value={email}
@@ -200,7 +257,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
             <Text style={styles.label}>Password</Text>
             <View style={styles.inputWrapper}>
                <View style={styles.iconPos}>
-                 <Lock size={20} stroke="#9CA3AF" />
+                 <Lock size={20} {...({color: "#9CA3AF"} as any)} />
                </View>
               <TextInput 
                 value={password}
@@ -227,19 +284,10 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
              onPress={onSignUpClick}
              style={styles.signUpButton}
            >
-              <ClipboardList size={20} stroke="#7E22CE" /> 
+              <ClipboardList size={20} {...({color: "#7E22CE"} as any)} /> 
               <Text style={styles.signUpText}>Don't have an account? Apply Here</Text>
            </TouchableOpacity>
         </View>
-
-        {/* Seed Admin Button */}
-        <TouchableOpacity 
-          onPress={handleSeedAdmin}
-          style={styles.seedButton}
-        >
-          <ShieldCheck size={18} stroke="#4B5563" />
-          <Text style={styles.seedButtonText}>Initialize Admin Account</Text>
-        </TouchableOpacity>
 
         <Text style={styles.footerText}>
           Guardians must be approved by an Admin.
@@ -429,19 +477,6 @@ const styles = StyleSheet.create({
   signUpText: {
     color: '#7E22CE',
     fontWeight: 'bold',
-  },
-  seedButton: {
-    marginTop: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 12,
-  },
-  seedButtonText: {
-    color: '#6B7280',
-    fontSize: 14,
-    textDecorationLine: 'underline',
   },
   footerText: {
     marginTop: 16,

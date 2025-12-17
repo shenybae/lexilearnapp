@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { Shield, Lock, ArrowRight, RefreshCw, LogOut } from 'lucide-react-native';
@@ -56,7 +55,7 @@ export const TwoFactorAuth: React.FC<TwoFactorProps> = ({ email, onVerify, onCan
       <View style={styles.card}>
         <View style={styles.header}>
           <View style={styles.iconCircle}>
-            <Shield size={40} stroke="#4A90E2" />
+            <Shield size={40} {...({color: "#4A90E2"} as any)} />
           </View>
           <Text style={styles.title}>Two-Factor Authentication</Text>
           <Text style={styles.subtitle}>
@@ -68,7 +67,9 @@ export const TwoFactorAuth: React.FC<TwoFactorProps> = ({ email, onVerify, onCan
           <View>
             <Text style={styles.label}>Verification Code</Text>
             <View style={styles.inputContainer}>
-              <Lock style={styles.inputIcon} size={20} stroke="#9CA3AF" />
+              <View style={styles.inputIcon}>
+                <Lock size={20} {...({color: "#9CA3AF"} as any)} />
+              </View>
               <TextInput 
                 value={code}
                 onChangeText={(t) => setCode(t.replace(/[^0-9]/g, '').slice(0, 6))}
@@ -88,7 +89,7 @@ export const TwoFactorAuth: React.FC<TwoFactorProps> = ({ email, onVerify, onCan
             style={[styles.verifyButton, (isLoading || code.length < 6) && styles.disabledButton]}
           >
             <Text style={styles.verifyButtonText}>{isLoading ? 'Verifying...' : 'Verify'}</Text>
-            {!isLoading && <ArrowRight size={20} stroke="#FFF" />}
+            {!isLoading && <ArrowRight size={20} {...({color: "#FFF"} as any)} />}
           </TouchableOpacity>
         </View>
 
@@ -98,7 +99,7 @@ export const TwoFactorAuth: React.FC<TwoFactorProps> = ({ email, onVerify, onCan
             disabled={timer > 0}
             style={styles.resendButton}
           >
-            <RefreshCw size={16} stroke={timer > 0 ? '#9CA3AF' : '#4A90E2'} />
+            <RefreshCw size={16} {...({color: timer > 0 ? '#9CA3AF' : '#4A90E2'} as any)} />
             <Text style={[styles.resendText, timer > 0 ? styles.textGray : styles.textBlue]}>
                  {timer > 0 ? `Resend Code in ${timer}s` : 'Resend Code'}
             </Text>
@@ -108,7 +109,7 @@ export const TwoFactorAuth: React.FC<TwoFactorProps> = ({ email, onVerify, onCan
             onPress={onCancel}
             style={styles.cancelButton}
           >
-            <LogOut size={16} stroke="#6B7280" />
+            <LogOut size={16} {...({color: "#6B7280"} as any)} />
             <Text style={styles.cancelText}>Cancel & Log Out</Text>
           </TouchableOpacity>
         </View>

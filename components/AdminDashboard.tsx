@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, StyleSheet, Linking, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, StyleSheet, Linking } from 'react-native';
 import { GuardianApplication } from '../types';
-import { db } from '../firebaseConfig';
-import { collection, query, orderBy, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { Shield, CheckCircle, XCircle, Clock, Search, LogOut, Mail, User, Baby, BookOpen, PenTool, Type, RefreshCw, Send, AlertCircle } from 'lucide-react-native';
+import { db, collection, query, getDocs, doc, updateDoc } from '../firebaseConfig';
+import { Shield, CheckCircle, XCircle, Clock, Search, LogOut, Mail, User, Baby, BookOpen, PenTool, Type, AlertCircle } from 'lucide-react-native';
 
 interface AdminDashboardProps {
   userEmail: string;
@@ -24,41 +23,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
     setLoading(true);
     setError(null);
     try {
-      const q = query(collection(db, 'applications'), orderBy('dateApplied', 'desc'));
+      const q = query(collection(db, 'applications'));
       const snapshot = await getDocs(q);
-      const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GuardianApplication));
+      const apps = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as GuardianApplication));
+      
+      // Client-side sort
+      apps.sort((a, b) => new Date(b.dateApplied).getTime() - new Date(a.dateApplied).getTime());
+      
       setApplications(apps);
     } catch (error: any) {
       console.error("Error fetching applications:", error);
       if (error.code === 'permission-denied') {
-          // Fallback to Demo Data so the app is usable for testing
-          setError("Access Denied: Using Demo Data");
-          setApplications([
-              {
-                  id: 'demo1',
-                  uid: 'demoUid1',
-                  guardianName: 'Sarah Smith',
-                  email: 'sarah@example.com',
-                  childName: 'Leo',
-                  childAge: '8',
-                  relationship: 'Parent',
-                  difficultyRatings: { reading: 1, writing: 2, spelling: 3 },
-                  status: 'PENDING',
-                  dateApplied: new Date().toISOString()
-              },
-              {
-                  id: 'demo2',
-                  uid: 'demoUid2',
-                  guardianName: 'Mike Jones',
-                  email: 'mike@example.com',
-                  childName: 'Sam',
-                  childAge: '10',
-                  relationship: 'Teacher',
-                  difficultyRatings: { reading: 2, writing: 1, spelling: 3 },
-                  status: 'APPROVED',
-                  dateApplied: new Date(Date.now() - 86400000).toISOString()
-              }
-          ]);
+          setError("Access Denied: You do not have permissions to view applications.");
       } else {
           setError("Could not load applications. Please check your connection.");
       }
@@ -68,15 +44,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
   };
 
   const handleStatusChange = async (app: GuardianApplication, newStatus: 'APPROVED' | 'REJECTED') => {
-    // If working with demo data, just update local state
-    if (app.id && app.id.startsWith('demo')) {
-        setApplications(prev => prev.map(a => 
-            a.id === app.id ? { ...a, status: newStatus } : a
-        ));
-        Alert.alert("Demo Mode", `Action simulated: ${newStatus}`);
-        return;
-    }
-
     if (!app.uid || !app.id) {
         Alert.alert("Error", "User ID missing for this application. Cannot update user record.");
         return;
@@ -84,11 +51,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
 
     const processUpdate = async () => {
         try {
-            // 1. Update Application Status (So Admin sees it's handled)
+            // Step 2: Update Application Status
             const appRef = doc(db, 'applications', app.id!);
             await updateDoc(appRef, { status: newStatus });
       
-            // 2. Update User Profile Status in 'users' collection
+            // Update User Profile Status in 'users' collection
             const userRef = doc(db, 'users', app.uid!);
             await updateDoc(userRef, { status: newStatus });
       
@@ -97,7 +64,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
             ));
             
             if (newStatus === 'APPROVED') {
-                // 3. Draft Email to User (Simulating sending credentials)
                 Alert.alert(
                     "Approved",
                     "The account is now active. Would you like to send the approval email with credentials now?",
@@ -166,7 +132,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.shieldIcon}>
-            <Shield stroke="#FFF" size={24} />
+            <Shield {...({color: "#FFF"} as any)} size={24} />
           </View>
           <View>
             <Text style={styles.headerTitle}>Admin Dashboard</Text>
@@ -177,13 +143,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
           onPress={onExit}
           style={styles.logoutButton}
         >
-          <LogOut size={20} stroke="#374151" />
+          <LogOut size={20} {...({color: "#374151"} as any)} />
         </TouchableOpacity>
       </View>
 
       {error ? (
           <View style={styles.errorBar}>
-              <AlertCircle size={20} stroke="#FFF" />
+              <AlertCircle size={20} {...({color: "#FFF"} as any)} />
               <Text style={styles.errorBarText}>{error} - Check Firestore Rules</Text>
           </View>
       ) : null}
@@ -198,7 +164,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                     <Text style={[styles.statValue, {color: '#2563EB'}]}>{applications.filter(a => a.status === 'PENDING').length}</Text>
                 </View>
                 <View style={[styles.statIcon, {backgroundColor: '#EFF6FF'}]}>
-                    <Clock size={24} stroke="#3B82F6" />
+                    <Clock size={24} {...({color: "#3B82F6"} as any)} />
                 </View>
                 </View>
             </View>
@@ -210,7 +176,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                     <Text style={[styles.statValue, {color: '#16A34A'}]}>{applications.filter(a => a.status === 'APPROVED').length}</Text>
                 </View>
                 <View style={[styles.statIcon, {backgroundColor: '#ECFDF5'}]}>
-                    <User size={24} stroke="#10B981" />
+                    <User size={24} {...({color: "#10B981"} as any)} />
                 </View>
                 </View>
             </View>
@@ -222,7 +188,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                     <Text style={styles.statusText}>Active</Text>
                 </View>
                 <View style={[styles.statIcon, {backgroundColor: '#F5F3FF'}]}>
-                    <Shield size={24} stroke="#8B5CF6" />
+                    <Shield size={24} {...({color: "#8B5CF6"} as any)} />
                 </View>
                 </View>
             </View>
@@ -255,7 +221,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                 </View>
             ) : filteredApps.length === 0 ? (
                 <View style={styles.loadingContainer}>
-                <Search size={48} stroke="#E5E7EB" />
+                <Search size={48} {...({color: "#E5E7EB"} as any)} />
                 <Text style={styles.emptyText}>No applications found matching this filter.</Text>
                 </View>
             ) : (
@@ -268,7 +234,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                             <View>
                                 <Text style={styles.guardianName}>{app.guardianName}</Text>
                                 <View style={styles.emailRow}>
-                                    <Mail size={14} stroke="#6B7280" />
+                                    <Mail size={14} {...({color: "#6B7280"} as any)} />
                                     <Text style={styles.emailText}>{app.email}</Text>
                                 </View>
                             </View>
@@ -286,97 +252,120 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ userEmail, onExi
                         </View>
 
                         {/* Child Info */}
-                        <View style={styles.childInfoBox}>
-                            <View style={styles.childRow}>
-                                <View style={{flex: 1}}>
-                                    <Text style={styles.childLabel}>Child</Text>
-                                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-                                        <Baby size={16} stroke="#4B5563" />
-                                        <Text style={styles.childValue}>{app.childName} ({app.childAge})</Text>
-                                    </View>
-                                </View>
-                                <View style={{flex: 1}}>
-                                    <Text style={styles.childLabel}>Relationship</Text>
-                                    <Text style={styles.childValue}>{app.relationship}</Text>
-                                </View>
+                        <View style={styles.childInfoSection}>
+                            <View style={styles.infoRow}>
+                                <Baby size={16} {...({color: "#6B7280"} as any)} />
+                                <Text style={styles.infoLabel}>Child:</Text>
+                                <Text style={styles.infoValue}>{app.childName} (Age: {app.childAge})</Text>
+                            </View>
+                            <View style={styles.infoRow}>
+                                <User size={16} {...({color: "#6B7280"} as any)} />
+                                <Text style={styles.infoLabel}>Relationship:</Text>
+                                <Text style={styles.infoValue}>{app.relationship}</Text>
                             </View>
                         </View>
 
                         {/* Ratings */}
-                        <View style={styles.ratingsBox}>
-                            <Text style={styles.ratingsTitle}>Assessment Priorities</Text>
-                            <View style={styles.ratingsGrid}>
-                                {[
-                                    { label: 'Reading', val: app.difficultyRatings.reading, icon: BookOpen },
-                                    { label: 'Writing', val: app.difficultyRatings.writing, icon: PenTool },
-                                    { label: 'Spelling', val: app.difficultyRatings.spelling, icon: Type },
-                                ].map((r) => {
-                                    const style = getRatingStyle(r.val);
-                                    return (
-                                        <View key={r.label} style={[styles.ratingItem, {backgroundColor: style.bg}]}>
-                                            <r.icon size={16} stroke={style.text} style={{marginBottom: 4}} />
-                                            <Text style={[styles.ratingLabel, {color: style.text}]}>{r.label}</Text>
-                                            <Text style={[styles.ratingScore, {color: style.text}]}>{r.val}</Text>
-                                            <Text style={[styles.ratingValue, {color: style.text}]}>
-                                                {r.val === 1 ? 'Primary' : r.val === 2 ? 'Secondary' : 'Low'}
-                                            </Text>
-                                        </View>
-                                    );
-                                })}
+                        <View style={styles.ratingsContainer}>
+                            <Text style={styles.ratingsTitle}>Priorities (1=High, 3=Low)</Text>
+                            <View style={styles.ratingsRow}>
+                                <View style={[styles.ratingBadge, { backgroundColor: getRatingStyle(app.difficultyRatings.reading).bg }]}>
+                                    <BookOpen size={14} {...({color: getRatingStyle(app.difficultyRatings.reading).text} as any)} />
+                                    <Text style={[styles.ratingText, { color: getRatingStyle(app.difficultyRatings.reading).text }]}>Reading: {app.difficultyRatings.reading}</Text>
+                                </View>
+                                <View style={[styles.ratingBadge, { backgroundColor: getRatingStyle(app.difficultyRatings.writing).bg }]}>
+                                    <PenTool size={14} {...({color: getRatingStyle(app.difficultyRatings.writing).text} as any)} />
+                                    <Text style={[styles.ratingText, { color: getRatingStyle(app.difficultyRatings.writing).text }]}>Writing: {app.difficultyRatings.writing}</Text>
+                                </View>
+                                <View style={[styles.ratingBadge, { backgroundColor: getRatingStyle(app.difficultyRatings.spelling).bg }]}>
+                                    <Type size={14} {...({color: getRatingStyle(app.difficultyRatings.spelling).text} as any)} />
+                                    <Text style={[styles.ratingText, { color: getRatingStyle(app.difficultyRatings.spelling).text }]}>Spelling: {app.difficultyRatings.spelling}</Text>
+                                </View>
                             </View>
                         </View>
 
                         {/* Actions */}
                         {app.status === 'PENDING' && (
-                            <View style={styles.actionRow}>
+                            <View style={styles.actionsRow}>
                                 <TouchableOpacity 
                                     onPress={() => handleStatusChange(app, 'REJECTED')}
                                     style={styles.rejectButton}
                                 >
-                                    <XCircle size={18} stroke="#DC2626" />
-                                    <Text style={[styles.buttonText, {color: '#DC2626'}]}>Reject</Text>
+                                    <XCircle size={18} {...({color: "#DC2626"} as any)} />
+                                    <Text style={styles.rejectText}>Reject</Text>
                                 </TouchableOpacity>
-
                                 <TouchableOpacity 
                                     onPress={() => handleStatusChange(app, 'APPROVED')}
                                     style={styles.approveButton}
                                 >
-                                    <CheckCircle size={18} stroke="#16A34A" />
-                                    <Text style={[styles.buttonText, {color: '#16A34A'}]}>Approve</Text>
+                                    <CheckCircle size={18} {...({color: "#FFF"} as any)} />
+                                    <Text style={styles.approveText}>Approve Access</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
-
-                        {/* Approved State Action: Send Email again */}
                         {app.status === 'APPROVED' && (
-                             <TouchableOpacity 
-                                onPress={() => handleStatusChange(app, 'APPROVED')} 
-                                style={styles.resendEmailButton}
-                             >
-                                <Send size={16} stroke="#4B5563" />
-                                <Text style={styles.resendEmailText}>Resend Credentials Email</Text>
-                             </TouchableOpacity>
+                             <View style={styles.approvedInfo}>
+                                <CheckCircle size={16} {...({color: "#16A34A"} as any)} />
+                                <Text style={styles.approvedText}>Access Granted</Text>
+                             </View>
+                        )}
+                         {app.status === 'REJECTED' && (
+                             <View style={styles.rejectedInfo}>
+                                <XCircle size={16} {...({color: "#DC2626"} as any)} />
+                                <Text style={styles.rejectedText}>Application Rejected</Text>
+                             </View>
                         )}
                     </View>
                     ))}
                 </View>
             )}
             </View>
-        </ScrollView>
+      </ScrollView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBF7' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 60, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  shieldIcon: { width: 48, height: 48, backgroundColor: '#4A90E2', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F2937' },
-  headerSubtitle: { fontSize: 12, color: '#6B7280' },
-  logoutButton: { padding: 12, backgroundColor: '#F3F4F6', borderRadius: 12 },
+  container: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+  },
+  header: {
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    paddingTop: 60,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  shieldIcon: {
+    backgroundColor: '#4A90E2',
+    padding: 8,
+    borderRadius: 12,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  logoutButton: {
+    padding: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+  },
   errorBar: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#EF4444',
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -384,51 +373,249 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   errorBarText: {
-    color: '#FFF',
+    color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
   },
-  statsScroll: { maxHeight: 100, marginBottom: 24 },
-  statsContainer: { paddingHorizontal: 24, paddingVertical: 12, gap: 16 },
-  statCard: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 16, width: 140, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  statLabel: { fontSize: 12, color: '#6B7280', fontWeight: 'bold', marginBottom: 4 },
-  statValue: { fontSize: 24, fontWeight: 'bold', color: '#1F2937' },
-  statIcon: { padding: 8, borderRadius: 8 },
-  statusText: { fontSize: 16, fontWeight: 'bold', color: '#8B5CF6' },
-  filterScroll: { paddingHorizontal: 24, marginBottom: 24, maxHeight: 50 },
-  filterButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 999, marginRight: 12, borderWidth: 1 },
-  filterActive: { backgroundColor: '#4A90E2', borderColor: '#4A90E2' },
-  filterInactive: { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' },
-  filterText: { fontWeight: 'bold' },
-  filterTextActive: { color: '#FFFFFF' },
-  filterTextInactive: { color: '#6B7280' },
-  listContainer: { paddingHorizontal: 24, paddingBottom: 40 },
-  loadingContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
-  loadingText: { marginTop: 16, color: '#6B7280' },
-  emptyText: { marginTop: 16, color: '#9CA3AF', textAlign: 'center' },
-  applicationItem: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 24, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#F3F4F6' },
-  appHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  guardianName: { fontSize: 18, fontWeight: 'bold', color: '#1F2937', marginBottom: 4 },
-  emailRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  emailText: { color: '#6B7280', fontSize: 14 },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999 },
-  statusTextBadge: { fontSize: 12, fontWeight: 'bold' },
-  childInfoBox: { backgroundColor: '#F9FAFB', padding: 16, borderRadius: 16, marginBottom: 16 },
-  childRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  childLabel: { fontSize: 12, color: '#9CA3AF', fontWeight: 'bold', textTransform: 'uppercase' },
-  childValue: { fontSize: 16, color: '#374151', fontWeight: 'bold' },
-  ratingsBox: { marginBottom: 24 },
-  ratingsTitle: { fontSize: 14, fontWeight: 'bold', color: '#374151', marginBottom: 12 },
-  ratingsGrid: { flexDirection: 'row', gap: 8 },
-  ratingItem: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center' },
-  ratingLabel: { fontSize: 12, fontWeight: 'bold', color: '#6B7280', marginBottom: 4 },
-  ratingValue: { fontSize: 12, fontWeight: 'bold', opacity: 0.8 },
-  ratingScore: { fontSize: 20, fontWeight: 'bold', marginTop: 4 },
-  actionRow: { flexDirection: 'row', gap: 12 },
-  approveButton: { flex: 1, backgroundColor: '#DCFCE7', paddingVertical: 12, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
-  rejectButton: { flex: 1, backgroundColor: '#FEE2E2', paddingVertical: 12, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
-  buttonText: { fontWeight: 'bold', fontSize: 14 },
-  resendEmailButton: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, backgroundColor: '#F3F4F6', borderRadius: 8 },
-  resendEmailText: { color: '#4B5563', fontWeight: '600' }
+  statsScroll: {
+    paddingVertical: 16,
+  },
+  statsContainer: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  statCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 16,
+    width: 160,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  statusText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#8B5CF6',
+  },
+  statIcon: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  filterScroll: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+  },
+  filterActive: {
+    backgroundColor: '#4A90E2',
+    borderColor: '#4A90E2',
+  },
+  filterInactive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D1D5DB',
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  filterTextActive: {
+    color: '#FFFFFF',
+  },
+  filterTextInactive: {
+    color: '#6B7280',
+  },
+  listContainer: {
+    paddingHorizontal: 16,
+  },
+  loadingContainer: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#6B7280',
+  },
+  emptyText: {
+    marginTop: 16,
+    color: '#9CA3AF',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  applicationItem: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  appHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  guardianName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  emailText: {
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  statusTextBadge: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  childInfoSection: {
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4B5563',
+    width: 100,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#1F2937',
+    flex: 1,
+  },
+  ratingsContainer: {
+    marginBottom: 16,
+  },
+  ratingsTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#9CA3AF',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  ratingsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  ratingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  ratingText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  rejectButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#FEE2E2',
+  },
+  rejectText: {
+    color: '#DC2626',
+    fontWeight: 'bold',
+  },
+  approveButton: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#2563EB',
+  },
+  approveText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  approvedInfo: {
+      marginTop: 8,
+      padding: 12,
+      backgroundColor: '#F0FDF4',
+      borderRadius: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      justifyContent: 'center'
+  },
+  approvedText: {
+      color: '#16A34A',
+      fontWeight: 'bold'
+  },
+  rejectedInfo: {
+      marginTop: 8,
+      padding: 12,
+      backgroundColor: '#FEF2F2',
+      borderRadius: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      justifyContent: 'center'
+  },
+  rejectedText: {
+      color: '#DC2626',
+      fontWeight: 'bold'
+  }
 });

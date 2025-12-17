@@ -41,6 +41,7 @@ export interface AssessmentScores {
   irregularSpelling: number;
   spellingAccuracy: number;
   overallAverage: number;
+  focusAreas?: string[]; // Added: Ordered list of focus areas (e.g. ['Reading', 'Writing', 'Spelling'])
 }
 
 export interface ProgressRecord {
@@ -56,7 +57,7 @@ export interface UserProfile {
   childName: string;
   childAge?: string;
   role: 'Guardian' | 'Admin';
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'; // Added status field
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'; 
   assessmentComplete: boolean;
   assignedDifficulty: Difficulty;
   assessmentScores?: AssessmentScores;

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { SpellingItem, Difficulty } from '../types';
@@ -129,7 +128,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onExit} style={styles.backButton}>
-          <ChevronLeft size={24} stroke="#4B5563" /> 
+          <ChevronLeft size={24} {...({color: "#4B5563"} as any)} /> 
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.titleContainer}>
@@ -143,7 +142,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
         
         {/* Navigation */}
         <TouchableOpacity onPress={prevLevel} disabled={currentIndex === 0} style={[styles.navButton, styles.navLeft, currentIndex === 0 && styles.disabledNav]}>
-          <ChevronLeft size={24} stroke="#000" />
+          <ChevronLeft size={24} {...({color: "#000"} as any)} />
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -155,7 +154,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
                 (currentIndex === items.length - 1 || currentIndex >= unlockedLevel) && styles.disabledNav
             ]}
         >
-          <ChevronRight size={24} stroke={currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} />
+          <ChevronRight size={24} {...({color: currentIndex >= unlockedLevel ? "#9CA3AF" : "#000"} as any)} />
         </TouchableOpacity>
 
         {/* Word / Image Area */}
@@ -165,7 +164,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
                 onPress={playWord} 
                 style={styles.hearButton}
             >
-              <Volume2 size={24} stroke="#FFF" /> 
+              <Volume2 size={24} {...({color: "#FFF"} as any)} /> 
               <Text style={styles.hearButtonText}>Hear Word</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={playHint} style={styles.hintButton}>
@@ -199,7 +198,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
         {/* Feedback */}
         {feedback ? (
           <View style={styles.feedbackContainer}>
-            {isCorrect && <CheckCircle size={24} stroke="#16A34A" />}
+            {isCorrect && <CheckCircle size={24} {...({color: "#16A34A"} as any)} />}
             <Text style={[styles.feedbackText, isCorrect ? styles.textSuccess : styles.textError]}>{feedback}</Text>
           </View>
         ) : null}
@@ -220,7 +219,7 @@ export const SpellingActivity: React.FC<SpellingActivityProps> = ({ items, diffi
 
         {/* Reset */}
         <TouchableOpacity onPress={resetLevel} style={styles.resetButton}>
-          <RotateCcw size={16} stroke="#9CA3AF" />
+          <RotateCcw size={16} {...({color: "#9CA3AF"} as any)} />
           <Text style={styles.resetText}>Reset Level</Text>
         </TouchableOpacity>
 
