@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI, UploadFile, File
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, BitsAndBytesConfig
 import torch
@@ -5,20 +6,29 @@ import tempfile
 import os
 import torchaudio
 
+# ==========================
+# APP INIT
+# ==========================
 app = FastAPI(title="Lexi Whisper INT8 API")
 
 # ==========================
 # CONFIG: Load model from Hugging Face
 # ==========================
-MODEL_HF_REPO = "sesefi/lexi-reading-pronunciation"  # Your Hugging Face model
+MODEL_HF_REPO = "sesefi/lexi-reading-pronunciation"
 
 # Use INT8 quantization to reduce memory usage
 bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+
+print("Loading model in INT8 (CPU)...")
 model = WhisperForConditionalGeneration.from_pretrained(
     MODEL_HF_REPO,
-    device_map="auto",
     quantization_config=bnb_config
 )
+
+# Move model to CPU explicitly (Render free tier is CPU only)
+device = torch.device("cpu")
+model.to(device)
+
 processor = WhisperProcessor.from_pretrained(MODEL_HF_REPO)
 
 print("✅ Model loaded successfully!")
@@ -36,25 +46,28 @@ async def transcribe(audio: UploadFile = File(...)):
     Accepts audio file upload and returns transcription.
     """
     # Save uploaded file temporarily
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
         tmp.write(await audio.read())
         audio_path = tmp.name
 
-    # Load audio and process
-    waveform, sample_rate = torchaudio.load(audio_path)
-    inputs = processor(waveform, sampling_rate=sample_rate, return_tensors="pt")
+    try:
+        # Load audio
+        waveform, sample_rate = torchaudio.load(audio_path)
 
-    # Move inputs to same device as model
-    device = next(model.parameters()).device
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+        # Process audio
+        inputs = processor(waveform, sampling_rate=sample_rate, return_tensors="pt")
 
-    # Generate transcription
-    with torch.no_grad():
-        generated_ids = model.generate(**inputs)
+        # Move inputs to same device as model
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        # Generate transcription
+        with torch.no_grad():
+            generated_ids = model.generate(**inputs)
 
-    # Cleanup temp file
-    os.remove(audio_path)
+        transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+    finally:
+        # Cleanup temp file
+        os.remove(audio_path)
 
     return {"transcription": transcription}

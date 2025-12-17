@@ -1,8 +1,8 @@
 fastapi
 uvicorn
-transformers
 torch
+transformers
 bitsandbytes
-safetensors
-python-multipart
 torchaudio
+accelerate
+safetensors

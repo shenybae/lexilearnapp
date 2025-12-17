@@ -37,7 +37,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkBackend = async () => {
         try {
-            console.log("Checking backend connection...");
             const response = await fetch('https://lexilearnapp.onrender.com');
             if (response.ok) {
                 console.log("✅ Backend is UP");
@@ -57,6 +56,19 @@ const App: React.FC = () => {
       }
   };
 
+  const handleSignOut = async () => {
+      try {
+        if (currentUser) {
+            await AsyncStorage.removeItem(`user_profile_${currentUser.uid}`);
+        }
+        await signOut(auth);
+      } catch (e) {
+          console.error("Sign out error", e);
+      }
+      setCurrentUser(null);
+      setScreen(Screen.LOGIN);
+  };
+
   const navigateBasedOnUser = (user: UserProfile) => {
       // 1. Admin Logic
       if (user.role === 'Admin') {
@@ -64,19 +76,18 @@ const App: React.FC = () => {
           return;
       }
       
-      // 2. Pending Logic - Should be caught by LoginScreen, but fallback check here
+      // 2. Pending Logic - FORCE LOGOUT
+      // We do not allow PENDING users to stay in the app.
       if (user.status === 'PENDING') {
-          // If we somehow got here with a Pending user, log them out immediately
-          console.log("Detected PENDING user in app flow. Signing out.");
+          console.log("User is PENDING. Forcing logout.");
           handleSignOut();
           return;
       }
       
       // 3. Rejected Logic
       if (user.status === 'REJECTED') {
-          setScreen(Screen.LOGIN);
           Alert.alert("Access Denied", "Your account application was rejected.");
-          signOut(auth);
+          handleSignOut();
           return;
       }
 
@@ -114,6 +125,7 @@ const App: React.FC = () => {
       if (user) {
         setConnectionStatus('ONLINE');
         
+        // Initial Local Load
         try {
             const localData = await AsyncStorage.getItem(`user_profile_${user.uid}`);
             if (localData) {
@@ -122,9 +134,11 @@ const App: React.FC = () => {
                 setDifficulty(parsedUser.assignedDifficulty || Difficulty.MILD);
                 previousStatusRef.current = parsedUser.status;
 
-                // If user is already on the pending screen from a previous session
+                // IMPORTANT: If local data says PENDING, force logout immediately.
                 if (parsedUser.status === 'PENDING') {
-                    setScreen(Screen.PENDING_APPROVAL);
+                    handleSignOut();
+                    setLoading(false);
+                    return; // Stop execution
                 } else if (loading || currentScreen === Screen.LOGIN) {
                     navigateBasedOnUser(parsedUser);
                 }
@@ -141,71 +155,64 @@ const App: React.FC = () => {
               const currentStatus = userData.status;
               const prevStatus = previousStatusRef.current;
 
-              // --- CRITICAL FIX: FORCE LOGOUT ON APPROVAL ---
-              // If the user's status changes to 'APPROVED' while they were previously 'PENDING'
-              // (or if they are currently sitting on the Pending screen), we force a logout.
-              // This ensures they are returned to the Login screen instead of auto-redirecting to Assessments.
-              const wasPending = prevStatus === 'PENDING' || currentScreenRef.current === Screen.PENDING_APPROVAL;
-              
-              if (currentStatus === 'APPROVED' && wasPending) {
-                   console.log("Approval detected (Pending -> Approved). Forcing logout to return to Login Screen.");
-                   
-                   // 1. Sign out from Firebase
-                   await signOut(auth);
-                   // 2. Clear local storage
-                   await AsyncStorage.removeItem(`user_profile_${user.uid}`);
-                   // 3. Reset State
-                   setCurrentUser(null);
-                   setScreen(Screen.LOGIN);
+              // --- CRITICAL: HANDLE PENDING -> APPROVED TRANSITION ---
+              // The user specifically requested: "After approval, do not redirect to assessments instead go back to login screen."
+              // This handles the case where a user might be somehow watching the screen (or the app is open) when approval happens.
+              if (prevStatus === 'PENDING' && currentStatus === 'APPROVED') {
+                   console.log("Transition PENDING -> APPROVED detected. Forcing logout.");
+                   Alert.alert("Approved!", "Your account has been approved. Please log in.");
+                   // Do NOT navigate. Sign out immediately.
+                   await handleSignOut();
                    setLoading(false);
-                   
-                   // 4. Notify User
-                   Alert.alert("Application Approved", "Your account has been approved!\n\nPlease log in to access your dashboard.");
-                   return; // STOP execution here. Do not call navigateBasedOnUser.
+                   return;
               }
-              // ----------------------------------------------
 
+              // --- CRITICAL: HANDLE EXISTING PENDING ---
+              // If we load and find the user is PENDING, we must sign them out. They cannot be in the app.
+              if (currentStatus === 'PENDING') {
+                  console.log("Snapshot detected PENDING status. Forcing logout.");
+                  await handleSignOut();
+                  setLoading(false);
+                  return;
+              }
+
+              // --- NORMAL FLOW (APPROVED / REJECTED) ---
+              // Only update state if we are NOT pending.
               setCurrentUser(userData);
               setDifficulty(userData.assignedDifficulty || Difficulty.MILD);
               saveProfileLocally(userData);
               previousStatusRef.current = currentStatus;
 
               if (loading) {
-                  // Initial Load Logic
-                  if (currentStatus !== 'PENDING') {
-                     navigateBasedOnUser(userData);
-                  } else {
-                     setScreen(Screen.PENDING_APPROVAL);
-                  }
+                  navigateBasedOnUser(userData);
               } else {
-                 // Runtime updates (e.g., Rejection)
+                 // Runtime updates
                  if (currentStatus === 'REJECTED') {
-                     navigateBasedOnUser(userData); 
+                     handleSignOut();
+                     Alert.alert("Access Revoked", "Your account has been rejected.");
                  }
-                 // Note: We do NOT auto-navigate on runtime 'APPROVED' here because the block above handles it by logging out.
               }
               setLoading(false);
           } else {
-             // Fallback if doc is missing
-             const fallbackProfile: UserProfile = { 
-                 uid: user.uid, 
-                 email: user.email!, 
-                 role: 'Guardian', 
-                 childName: 'Student', 
-                 status: 'PENDING', 
-                 assessmentComplete: false, 
-                 assignedDifficulty: Difficulty.MILD, 
-                 progressHistory: []
-             };
-             
-             setCurrentUser(fallbackProfile);
-             if (loading) setScreen(Screen.PENDING_APPROVAL);
+             // Doc missing - treat as pending/error
+             await handleSignOut();
              setLoading(false);
           }
         }, (error: any) => {
            console.warn("Firestore Read Error:", error.code);
-           // Offline fallback logic
-           setLoading(false);
+           if (error.code === 'permission-denied') {
+               setConnectionStatus('OFFLINE_MODE');
+               // Allow offline usage only if we have a valid APPROVED local user
+               if (currentUser && currentUser.status === 'APPROVED') {
+                   setLoading(false);
+               } else {
+                   // Otherwise logout
+                   handleSignOut();
+                   setLoading(false);
+               }
+           } else {
+               setLoading(false);
+           }
         });
 
         return () => unsubscribeSnapshot();
@@ -223,19 +230,6 @@ const App: React.FC = () => {
 
     return unsubscribeAuth;
   }, [retryTrigger]);
-
-  const handleSignOut = async () => {
-      try {
-        if (currentUser) {
-            await AsyncStorage.removeItem(`user_profile_${currentUser.uid}`);
-        }
-        await signOut(auth);
-      } catch (e) {
-          console.error("Sign out error", e);
-      }
-      setCurrentUser(null);
-      setScreen(Screen.LOGIN);
-  };
 
   const handleActivityComplete = async (type: 'Tracing' | 'Reading' | 'Spelling' | 'Memory', score: number) => {
       const newRecord: ProgressRecord = {
@@ -301,27 +295,6 @@ const App: React.FC = () => {
           }
       }
   };
-
-  const renderPendingApproval = () => (
-      <View style={styles.pendingContainer}>
-          <View style={styles.pendingCard}>
-              <Clock size={64} {...({color: "#3B82F6"} as any)} />
-              <Text style={styles.pendingTitle}>Application Pending</Text>
-              <Text style={styles.pendingText}>
-                  Step 1 Complete: Application Submitted.
-              </Text>
-              <Text style={styles.pendingSubText}>
-                  Waiting for Step 2: Administrator Approval.
-                  You will receive an email once approved.
-                  Please wait for approval before logging in.
-              </Text>
-              
-              <TouchableOpacity onPress={handleSignOut} style={styles.signOutLink}>
-                  <Text style={styles.signOutLinkText}>Return to Login</Text>
-              </TouchableOpacity>
-          </View>
-      </View>
-  );
 
   const renderChildDashboard = () => (
     <ScrollView contentContainerStyle={styles.dashboardScroll} style={styles.background}>
@@ -473,7 +446,7 @@ const App: React.FC = () => {
        {currentScreen === Screen.SIGN_UP && (
           <SignUpScreen onBack={() => setScreen(Screen.LOGIN)} />
        )}
-       {currentScreen === Screen.PENDING_APPROVAL && renderPendingApproval()}
+       {/* NOTE: PENDING_APPROVAL screen is removed. PENDING users are forced to logout. */}
        {currentScreen === Screen.ASSESSMENT && currentUser && (
           <AssessmentFlow 
             user={currentUser} 
