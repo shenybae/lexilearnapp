@@ -97,6 +97,7 @@ android {
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
+
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -129,6 +130,15 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+
+    // <-- ADD THIS AT THE END OF android { } BLOCK
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.core:core:1.13.1'
+            force 'androidx.appcompat:appcompat:1.6.1'
+            force 'androidx.versionedparcelable:versionedparcelable:1.1.1'
+        }
     }
 }
 
