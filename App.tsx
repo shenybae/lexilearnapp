@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, StatusBar, Platform, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, StatusBar, Platform, Alert, Image, Dimensions, ImageBackground } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Difficulty, UserProfile, ProgressRecord } from './types';
 import { TRACING_ITEMS, READING_ITEMS, SPELLING_ITEMS, MEMORY_ITEMS } from './constants';
@@ -14,18 +14,27 @@ import { SignUpScreen } from './components/SignUpScreen';
 import { ParentDashboard } from './components/ParentDashboard';
 import { LearningJourney } from './components/LearningJourney';
 import { AdminDashboard } from './components/AdminDashboard';
-import { Brain, User, Map as MapIcon, GraduationCap, ArrowLeft, LogOut, PenTool, BookOpen, Keyboard, Zap, ChevronRight, Star, Clock, AlertTriangle, RefreshCw } from 'lucide-react-native';
-import { auth, db, onAuthStateChanged, signOut, doc, getDoc, updateDoc, onSnapshot } from './firebaseConfig';
+import { Brain, User, Map as MapIcon, GraduationCap, ArrowLeft, LogOut, PenTool, BookOpen, Keyboard, Zap, ChevronRight, Star, AlertTriangle, RefreshCw, Trophy } from 'lucide-react-native';
+import { auth, db, onAuthStateChanged, signOut, doc, updateDoc, onSnapshot } from './firebaseConfig';
+import * as ScreenOrientation from 'expo-screen-orientation';
+
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Local Assets
+const ReadingImg = require('./assets/Reading.png');
+const WritingImg = require('./assets/Writing.png');
+const SpellingImg = require('./assets/Spelling.png');
+const MemoryImg = require('./assets/Memory Span.png');
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const loadingRef = useRef(true); // Fix: Track loading state for closure access
+  const loadingRef = useRef(true); 
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.LOGIN);
   const currentScreenRef = useRef<Screen>(Screen.LOGIN);
   const previousStatusRef = useRef<string | null>(null);
 
-  const [selectedActivityType, setSelectedActivityType] = useState<'TRACING' | 'READING' | 'SPELLING' | 'MEMORY' | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.MILD);
   const [connectionStatus, setConnectionStatus] = useState<'ONLINE' | 'OFFLINE_MODE'>('ONLINE');
   const [retryTrigger, setRetryTrigger] = useState(0);
@@ -41,12 +50,29 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+  if (currentScreen === Screen.CHILD_DASHBOARD) {
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.LANDSCAPE
+    );
+  } else {
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT
+    );
+  }
+
+  return () => {
+    ScreenOrientation.lockAsync(
+      ScreenOrientation.OrientationLock.PORTRAIT
+    );
+  };
+}, [currentScreen]);
+
+
+  useEffect(() => {
     const checkBackend = async () => {
         try {
             const response = await fetch('https://lexilearnapp.onrender.com');
-            if (response.ok) {
-                console.log("✅ Backend is UP");
-            }
+            if (response.ok) console.log("✅ Backend is UP");
         } catch (error) {
             console.error("❌ Backend error", error);
         }
@@ -73,37 +99,26 @@ const App: React.FC = () => {
       }
       setCurrentUser(null);
       setScreen(Screen.LOGIN);
-      previousStatusRef.current = null; // Reset status tracking
+      previousStatusRef.current = null;
   };
 
   const navigateBasedOnUser = (user: UserProfile) => {
-      // 1. Admin Logic
       if (user.role === 'Admin') {
           setScreen(Screen.ADMIN_DASHBOARD);
           return;
       }
-      
-      // 2. Pending Logic - FORCE LOGOUT
-      // We do not allow PENDING users to stay in the app.
       if (user.status === 'PENDING') {
-          console.log("User is PENDING. Forcing logout.");
           handleSignOut();
           return;
       }
-      
-      // 3. Rejected Logic
       if (user.status === 'REJECTED') {
           Alert.alert("Access Denied", "Your account application was rejected.");
           handleSignOut();
           return;
       }
-
-      // 4. Approved Logic
       if (!user.assessmentComplete) {
-          // If approved but assessment is not done -> Go to Assessment
           setScreen(Screen.ASSESSMENT);
       } else {
-          // If approved and assessment is done -> Go to Home
           setScreen(Screen.HOME);
       }
   };
@@ -120,10 +135,8 @@ const App: React.FC = () => {
           await saveProfileLocally(manualUser);
           setCurrentUser(manualUser);
           navigateBasedOnUser(manualUser);
-      } else {
-          if (currentUser) {
-              navigateBasedOnUser(currentUser);
-          }
+      } else if (currentUser) {
+          navigateBasedOnUser(currentUser);
       }
   };
 
@@ -131,28 +144,19 @@ const App: React.FC = () => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user: any) => {
       if (user) {
         setConnectionStatus('ONLINE');
-        
-        // Initial Local Load
         try {
             const localData = await AsyncStorage.getItem(`user_profile_${user.uid}`);
             if (localData) {
                 const parsedUser = JSON.parse(localData) as UserProfile;
-                
-                // IMPORTANT: If local data says PENDING, force logout immediately.
-                if (parsedUser.status === 'PENDING') {
-                    // CRITICAL: Allow Sign Up screen to process without interruption
-                    if (currentScreenRef.current !== Screen.SIGN_UP) {
-                         handleSignOut();
-                         updateLoading(false);
-                         return;
-                    }
+                if (parsedUser.status === 'PENDING' && currentScreenRef.current !== Screen.SIGN_UP) {
+                    handleSignOut();
+                    updateLoading(false);
+                    return;
                 }
-
                 if (currentScreenRef.current !== Screen.SIGN_UP) {
                     setCurrentUser(parsedUser);
                     setDifficulty(parsedUser.assignedDifficulty || Difficulty.MILD);
                     previousStatusRef.current = parsedUser.status;
-
                     if (loadingRef.current || currentScreen === Screen.LOGIN) {
                         navigateBasedOnUser(parsedUser);
                     }
@@ -163,46 +167,26 @@ const App: React.FC = () => {
         }
 
         const userDocRef = doc(db, "users", user.uid);
-        
         const unsubscribeSnapshot = onSnapshot(userDocRef, async (docSnap: any) => {
           if (docSnap.exists()) {
               const userData = docSnap.data() as UserProfile;
               const currentStatus = userData.status;
               const prevStatus = previousStatusRef.current;
-
-              // --- FIX: IGNORE UPDATES IF ADMIN DASHBOARD IS ACTIVE ---
-              if (currentScreenRef.current === Screen.ADMIN_DASHBOARD) {
-                  return;
-              }
-
-              // --- CRITICAL FIX: HANDLE PENDING -> APPROVED TRANSITION ---
+              if (currentScreenRef.current === Screen.ADMIN_DASHBOARD) return;
               if (prevStatus === 'PENDING' && currentStatus === 'APPROVED') {
-                   console.log("Transition PENDING -> APPROVED detected. Forcing logout.");
                    await handleSignOut();
                    updateLoading(false);
                    return;
               }
-
-              // --- CRITICAL FIX: HANDLE EXISTING PENDING ---
-              if (currentStatus === 'PENDING') {
-                  if (currentScreenRef.current === Screen.SIGN_UP) {
-                      console.log("In Sign Up flow. Ignoring PENDING status.");
-                      return;
-                  }
-
-                  console.log("Snapshot detected PENDING status. Forcing logout.");
+              if (currentStatus === 'PENDING' && currentScreenRef.current !== Screen.SIGN_UP) {
                   await handleSignOut();
                   updateLoading(false);
                   return;
               }
-
-              // --- NORMAL FLOW (APPROVED / REJECTED) ---
               setCurrentUser(userData);
               setDifficulty(userData.assignedDifficulty || Difficulty.MILD);
               saveProfileLocally(userData);
               previousStatusRef.current = currentStatus;
-
-              // FIX: Use ref to check current loading state inside closure
               if (loadingRef.current) {
                   navigateBasedOnUser(userData);
               } else {
@@ -210,37 +194,20 @@ const App: React.FC = () => {
                      handleSignOut();
                      Alert.alert("Access Revoked", "Your account has been rejected.");
                  } else if (currentStatus === 'APPROVED' && !userData.assessmentComplete && currentScreenRef.current !== Screen.ASSESSMENT) {
-                     // Auto-redirect to assessment if newly approved and not already there
                      setScreen(Screen.ASSESSMENT);
                  }
               }
               updateLoading(false);
-          } else {
-             // Doc missing
-             if (currentScreenRef.current === Screen.SIGN_UP) {
-                 console.log("User doc missing during Sign Up. Allowing creation to proceed.");
-                 return;
-             }
-
-             console.log("User doc missing and not in Sign Up. Signing out.");
+          } else if (currentScreenRef.current !== Screen.SIGN_UP) {
              await handleSignOut();
              updateLoading(false);
           }
         }, (error: any) => {
-           console.warn("Firestore Read Error:", error.code);
            if (error.code === 'permission-denied') {
                setConnectionStatus('OFFLINE_MODE');
-               if (currentUser && currentUser.status === 'APPROVED') {
-                   updateLoading(false);
-               } else {
-                   handleSignOut();
-                   updateLoading(false);
-               }
-           } else {
                updateLoading(false);
            }
         });
-
         return () => unsubscribeSnapshot();
       } else {
         if (currentUser && currentUser.uid.startsWith('admin_manual_')) {
@@ -253,7 +220,6 @@ const App: React.FC = () => {
         }
       }
     });
-
     return unsubscribeAuth;
   }, [retryTrigger]);
 
@@ -264,159 +230,156 @@ const App: React.FC = () => {
           score: score,
           details: `${type} Activity`
       };
-
       if (currentUser) {
           const updatedHistory = [...(currentUser.progressHistory || []), newRecord];
           const updatedUser = { ...currentUser, progressHistory: updatedHistory };
           setCurrentUser(updatedUser);
           saveProfileLocally(updatedUser);
-
-          try {
-              if (connectionStatus === 'ONLINE' && !currentUser.uid.startsWith('admin_manual_')) {
-                const userRef = doc(db, "users", currentUser.uid);
-                await updateDoc(userRef, {
-                    progressHistory: updatedHistory
-                });
-              }
-          } catch (e) {
-              console.log("Error saving progress:", e);
+          if (connectionStatus === 'ONLINE' && !currentUser.uid.startsWith('admin_manual_')) {
+            try { await updateDoc(doc(db, "users", currentUser.uid), { progressHistory: updatedHistory }); } catch (e) {}
           }
       }
   };
 
   const handleLevelProgress = async (type: 'Tracing' | 'Reading' | 'Spelling' | 'Memory', levelIndex: number) => {
       if (!currentUser) return;
-      
       const currentSaved = (currentUser[`last${type}Index` as keyof UserProfile] as number) ?? -1;
-      
       if (levelIndex <= currentSaved) return;
-
       const fieldName = `last${type}Index` as keyof UserProfile;
       const updatedUser = { ...currentUser, [fieldName]: levelIndex };
-      
       setCurrentUser(updatedUser);
       saveProfileLocally(updatedUser);
-
       if (connectionStatus === 'ONLINE' && !currentUser.uid.startsWith('admin_manual_')) {
-        try {
-            const userRef = doc(db, "users", currentUser.uid);
-            await updateDoc(userRef, { [fieldName]: levelIndex });
-        } catch (e) {
-            console.log("Error saving level progress:", e);
-        }
+        try { await updateDoc(doc(db, "users", currentUser.uid), { [fieldName]: levelIndex }); } catch (e) {}
       }
   };
 
-  const updateChildName = async (newName: string) => {
-      if (currentUser) {
-          const updatedUser = { ...currentUser, childName: newName };
-          setCurrentUser(updatedUser);
-          saveProfileLocally(updatedUser);
-
-          if (connectionStatus === 'ONLINE' && !currentUser.uid.startsWith('admin_manual_')) {
-            try {
-                const userRef = doc(db, "users", currentUser.uid);
-                await updateDoc(userRef, { childName: newName });
-            } catch (e) {
-                console.log("Error saving name:", e);
-            }
-          }
-      }
-  };
-
-  // Helper to calculate the next starting index.
-  const getInitialIndex = (lastIndex?: number) => {
-      return (lastIndex ?? -1) + 1;
-  };
+  const getInitialIndex = (lastIndex?: number) => (lastIndex ?? -1) + 1;
 
   const renderChildDashboard = () => (
-    <ScrollView contentContainerStyle={styles.dashboardScroll} style={styles.background}>
-       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => setScreen(Screen.HOME)} style={styles.row}>
-            <ArrowLeft {...({color: "#6B7280"} as any)} />
-            <Text style={{color: '#6B7280', fontWeight: 'bold', marginLeft: 4}}>Home</Text>
+    <View style={styles.landscapeWrapper}>
+      {/* Top Header Row - Compact Landscape */}
+      <View style={styles.landscapeHeader}>
+        <TouchableOpacity onPress={() => setScreen(Screen.HOME)} style={styles.landscapeHeaderBtn}>
+            <ArrowLeft {...({color: "#6B7280"} as any)} size={20} />
+            <Text style={styles.landscapeHeaderBtnText}>Back</Text>
         </TouchableOpacity>
-        <View style={styles.row}>
-          <Brain size={40} {...({color: "#4A90E2"} as any)} />
-          <Text style={styles.headerTitle}>Activities</Text>
+        
+        <View style={styles.landscapeTitleRow}>
+            <Brain size={24} {...({color: "#4A90E2"} as any)} />
+            <Text style={styles.landscapeHeaderTitle}>Student Playground</Text>
         </View>
-        <View style={{width: 40}} /> 
-      </View>
 
-      <Text style={styles.welcomeText}>
-         Welcome, <Text style={{fontWeight: 'bold', color: '#4A90E2'}}>{currentUser?.childName}</Text>!
-      </Text>
-      
-      <View style={styles.levelIndicator}>
-          <Text style={styles.levelIndicatorLabel}>Recommended Level:</Text>
-          <View style={styles.levelIndicatorBadge}>
-            <Star size={16} {...({color: "#FACC15"} as any)} {...({fill: "#FACC15"} as any)} />
-            <Text style={styles.levelIndicatorText}>{difficulty}</Text>
-          </View>
-      </View>
-
-      <View style={styles.cardContainer}>
-        <TouchableOpacity 
-          onPress={() => { setSelectedActivityType('TRACING'); setScreen(Screen.TRACING); }}
-          style={styles.activityCard}
-        >
-          <View style={[styles.iconBox, {backgroundColor: '#DBEAFE'}]}><PenTool size={32} {...({color: "#2563EB"} as any)} /></View>
-          <View style={{flex: 1}}>
-            <Text style={styles.activityTitle}>Tracing</Text>
-            <Text style={styles.activityDesc}>Trace SVG paths</Text>
-            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastTracingIndex) + 1}</Text>
-          </View>
-          <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          onPress={() => { setSelectedActivityType('READING'); setScreen(Screen.READING); }}
-          style={styles.activityCard}
-        >
-          <View style={[styles.iconBox, {backgroundColor: '#DCFCE7'}]}><BookOpen size={32} {...({color: "#16A34A"} as any)} /></View>
-          <View style={{flex: 1}}>
-            <Text style={styles.activityTitle}>Reading</Text>
-            <Text style={styles.activityDesc}>Pronunciation & Fluency</Text>
-            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastReadingIndex) + 1}</Text>
-          </View>
-          <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          onPress={() => { setSelectedActivityType('SPELLING'); setScreen(Screen.SPELLING); }}
-          style={styles.activityCard}
-        >
-          <View style={[styles.iconBox, {backgroundColor: '#FEF9C3'}]}><Keyboard size={32} {...({color: "#B45309"} as any)} /></View>
-          <View style={{flex: 1}}>
-            <Text style={styles.activityTitle}>Spelling</Text>
-            <Text style={styles.activityDesc}>Word Construction</Text>
-            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastSpellingIndex) + 1}</Text>
-          </View>
-          <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          onPress={() => { setSelectedActivityType('MEMORY'); setScreen(Screen.MEMORY); }}
-          style={styles.activityCard}
-        >
-          <View style={[styles.iconBox, {backgroundColor: '#F3E8FF'}]}><Zap size={32} {...({color: "#9333EA"} as any)} /></View>
-          <View style={{flex: 1}}>
-            <Text style={styles.activityTitle}>Memory</Text>
-            <Text style={styles.activityDesc}>Pattern Recall</Text>
-            <Text style={styles.activityDesc}>Level {getInitialIndex(currentUser?.lastMemoryIndex) + 1}</Text>
-          </View>
-          <ChevronRight {...({color: "#D1D5DB"} as any)} size={28} />
+        <TouchableOpacity onPress={() => setScreen(Screen.LEARNING_JOURNEY)} style={styles.landscapeBadge}>
+            <MapIcon size={14} {...({color: "#2563EB"} as any)} />
+            <Text style={styles.landscapeBadgeText}>My Map</Text>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity 
-        onPress={() => setScreen(Screen.LEARNING_JOURNEY)}
-        style={styles.journeyButton}
+      <View style={styles.landscapeInfoBar}>
+          <Text style={styles.landscapeWelcomeText}>Hi {currentUser?.childName}!</Text>
+          <View style={styles.landscapeLevelIndicator}>
+            <Star size={12} {...({color: "#FACC15"} as any)} {...({fill: "#FACC15"} as any)} />
+            <Text style={styles.landscapeLevelText}>{difficulty}</Text>
+          </View>
+      </View>
+
+      {/* Horizontal Carousel with even smaller posters (180px) and zero overlapping */}
+      <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          contentContainerStyle={styles.horizontalScrollContainer}
+          style={styles.horizontalScrollStyle}
+          decelerationRate="fast"
+          snapToInterval={200} // Card width (180) + Margin (20)
+          snapToAlignment="center"
       >
-          <MapIcon size={24} {...({color: "#2563EB"} as any)} />
-          <Text style={{fontWeight: 'bold', color: '#1D4ED8', marginLeft: 12}}>View Learning Map</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        {/* READING POSTER */}
+        <TouchableOpacity onPress={() => setScreen(Screen.READING)} style={styles.activityPosterSmall}>
+          <ImageBackground source={ReadingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+            <View style={styles.posterOverlayMinimal}>
+                <View style={styles.posterTop}>
+                    <View style={styles.posterIconBoxSmall}>
+                        <BookOpen size={20} {...({color: "#374151"} as any)} />
+                    </View>
+                </View>
+                <View style={styles.posterBottomTextCompact}>
+                    <Text style={styles.posterTitleMicro}>READING</Text>
+                    <View style={styles.posterLevelRowSmall}>
+                        <Text style={styles.posterLevelLabelMicro}>Lv {getInitialIndex(currentUser?.lastReadingIndex) + 1}</Text>
+                        <Trophy size={14} {...({color: "#FACC15"} as any)} />
+                    </View>
+                </View>
+            </View>
+          </ImageBackground>
+        </TouchableOpacity>
+
+        {/* WRITING POSTER */}
+        <TouchableOpacity onPress={() => setScreen(Screen.TRACING)} style={styles.activityPosterSmall}>
+          <ImageBackground source={WritingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+            <View style={styles.posterOverlayMinimal}>
+                <View style={styles.posterTop}>
+                    <View style={styles.posterIconBoxSmall}>
+                        <PenTool size={20} {...({color: "#374151"} as any)} />
+                    </View>
+                </View>
+                <View style={styles.posterBottomTextCompact}>
+                    <Text style={styles.posterTitleMicro}>WRITING</Text>
+                    <View style={styles.posterLevelRowSmall}>
+                        <Text style={styles.posterLevelLabelMicro}>Lv {getInitialIndex(currentUser?.lastTracingIndex) + 1}</Text>
+                        <Trophy size={14} {...({color: "#FACC15"} as any)} />
+                    </View>
+                </View>
+            </View>
+          </ImageBackground>
+        </TouchableOpacity>
+
+        {/* SPELLING POSTER */}
+        <TouchableOpacity onPress={() => setScreen(Screen.SPELLING)} style={styles.activityPosterSmall}>
+          <ImageBackground source={SpellingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+            <View style={styles.posterOverlayMinimal}>
+                <View style={styles.posterTop}>
+                    <View style={styles.posterIconBoxSmall}>
+                        <Keyboard size={20} {...({color: "#374151"} as any)} />
+                    </View>
+                </View>
+                <View style={styles.posterBottomTextCompact}>
+                    <Text style={styles.posterTitleMicro}>SPELLING</Text>
+                    <View style={styles.posterLevelRowSmall}>
+                        <Text style={styles.posterLevelLabelMicro}>Lv {getInitialIndex(currentUser?.lastSpellingIndex) + 1}</Text>
+                        <Trophy size={14} {...({color: "#FACC15"} as any)} />
+                    </View>
+                </View>
+            </View>
+          </ImageBackground>
+        </TouchableOpacity>
+
+        {/* MEMORY SPAN POSTER */}
+        <TouchableOpacity onPress={() => setScreen(Screen.MEMORY)} style={styles.activityPosterSmall}>
+          <ImageBackground source={MemoryImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+            <View style={styles.posterOverlayMinimal}>
+                <View style={styles.posterTop}>
+                    <View style={styles.posterIconBoxSmall}>
+                        <Zap size={20} {...({color: "#374151"} as any)} />
+                    </View>
+                </View>
+                <View style={styles.posterBottomTextCompact}>
+                    <Text style={styles.posterTitleMicro}>MEMORY</Text>
+                    <View style={styles.posterLevelRowSmall}>
+                        <Text style={styles.posterLevelLabelMicro}>Lv {getInitialIndex(currentUser?.lastMemoryIndex) + 1}</Text>
+                        <Trophy size={14} {...({color: "#FACC15"} as any)} />
+                    </View>
+                </View>
+            </View>
+          </ImageBackground>
+        </TouchableOpacity>
+      </ScrollView>
+
+      <View style={styles.landscapeSwipeHint}>
+          <Text style={styles.swipeHintText}>Swipe horizontally to see all adventures</Text>
+          <ChevronRight size={12} {...({color: "#9CA3AF"} as any)} />
+      </View>
+    </View>
   );
 
   const renderLanding = () => (
@@ -425,25 +388,16 @@ const App: React.FC = () => {
           <LogOut size={20} {...({color: "#6B7280"} as any)} />
           <Text style={{color: '#6B7280', marginLeft: 8}}>Sign Out</Text>
       </TouchableOpacity>
-
       <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 64}}>
           <Brain size={64} {...({color: "#4A90E2"} as any)} />
           <Text style={styles.logoText}>LexiLearn</Text>
       </View>
-      
       <View style={{width: '100%', gap: 32}}>
-        <TouchableOpacity 
-          onPress={() => setScreen(Screen.CHILD_DASHBOARD)}
-          style={styles.roleCard}
-        >
+        <TouchableOpacity onPress={() => setScreen(Screen.CHILD_DASHBOARD)} style={styles.roleCard}>
           <View style={[styles.roleIconBox, {backgroundColor: '#DBEAFE'}]}><User size={48} {...({color: "#4A90E2"} as any)} /></View>
           <Text style={styles.roleTitle}>Student Area</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          onPress={() => setScreen(Screen.DASHBOARD)}
-          style={[styles.roleCard, {borderColor: 'rgba(22, 163, 74, 0.2)'}]}
-        >
+        <TouchableOpacity onPress={() => setScreen(Screen.DASHBOARD)} style={[styles.roleCard, {borderColor: 'rgba(22, 163, 74, 0.2)'}]}>
           <View style={[styles.roleIconBox, {backgroundColor: '#DCFCE7'}]}><GraduationCap size={48} {...({color: "#16A34A"} as any)} /></View>
           <Text style={styles.roleTitle}>Parent Dashboard</Text>
         </TouchableOpacity>
@@ -455,341 +409,120 @@ const App: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-       
+       <StatusBar barStyle="dark-content" />
        {connectionStatus === 'OFFLINE_MODE' && (
            <View style={styles.offlineBanner}>
-               <View style={styles.bannerRow}>
-                   <AlertTriangle size={16} {...({color: "#B45309"} as any)} />
-                   <Text style={styles.offlineText}>Offline: Database Permission Denied</Text>
-               </View>
-               <TouchableOpacity onPress={handleRetryConnection} style={styles.retryButton}>
-                   <RefreshCw size={14} {...({color: "#78350F"} as any)} />
-                   <Text style={styles.retryText}>Retry Connection</Text>
-               </TouchableOpacity>
+               <View style={styles.bannerRow}><AlertTriangle size={16} {...({color: "#B45309"} as any)} /><Text style={styles.offlineText}>Offline Mode</Text></View>
+               <TouchableOpacity onPress={handleRetryConnection} style={styles.retryButton}><RefreshCw size={14} {...({color: "#78350F"} as any)} /><Text style={styles.retryText}>Retry</Text></TouchableOpacity>
            </View>
        )}
-
-       {currentScreen === Screen.LOGIN && (
-          <LoginScreen 
-            onSignUpClick={() => setScreen(Screen.SIGN_UP)} 
-            onLoginSuccess={handleLoginSuccess}
-          />
-       )}
-       {currentScreen === Screen.SIGN_UP && (
-          <SignUpScreen onBack={() => setScreen(Screen.LOGIN)} />
-       )}
-       {currentScreen === Screen.ASSESSMENT && currentUser && (
-          <AssessmentFlow 
-            user={currentUser} 
-            onComplete={(p) => {
-                setCurrentUser(p); 
-                setDifficulty(p.assignedDifficulty);
-                saveProfileLocally(p);
-                setScreen(Screen.HOME);
-            }} 
-          />
-       )}
+       {currentScreen === Screen.LOGIN && <LoginScreen onSignUpClick={() => setScreen(Screen.SIGN_UP)} onLoginSuccess={handleLoginSuccess} />}
+       {currentScreen === Screen.SIGN_UP && <SignUpScreen onBack={() => setScreen(Screen.LOGIN)} />}
+       {currentScreen === Screen.ASSESSMENT && currentUser && <AssessmentFlow user={currentUser} onComplete={(p) => { setCurrentUser(p); setDifficulty(p.assignedDifficulty); saveProfileLocally(p); setScreen(Screen.HOME); }} />}
        {currentScreen === Screen.HOME && renderLanding()}
        {currentScreen === Screen.CHILD_DASHBOARD && renderChildDashboard()}
-       
-       {currentScreen === Screen.TRACING && (
-          <TracingActivity 
-            items={TRACING_ITEMS} 
-            difficulty={difficulty} 
-            initialIndex={getInitialIndex(currentUser?.lastTracingIndex)}
-            onComplete={(s) => handleActivityComplete('Tracing', s)} 
-            onLevelComplete={(idx) => handleLevelProgress('Tracing', idx)}
-            onExit={() => setScreen(Screen.CHILD_DASHBOARD)} 
-          />
-       )}
-       {currentScreen === Screen.READING && (
-          <ReadingActivity 
-            items={READING_ITEMS} 
-            difficulty={difficulty} 
-            initialIndex={getInitialIndex(currentUser?.lastReadingIndex)}
-            onComplete={(s) => handleActivityComplete('Reading', s)} 
-            onLevelComplete={(idx) => handleLevelProgress('Reading', idx)}
-            onExit={() => setScreen(Screen.CHILD_DASHBOARD)} 
-          />
-       )}
-       {currentScreen === Screen.SPELLING && (
-          <SpellingActivity 
-             items={SPELLING_ITEMS} 
-             difficulty={difficulty}
-             initialIndex={getInitialIndex(currentUser?.lastSpellingIndex)}
-             onComplete={(s) => handleActivityComplete('Spelling', s)}
-             onLevelComplete={(idx) => handleLevelProgress('Spelling', idx)}
-             onExit={() => setScreen(Screen.CHILD_DASHBOARD)}
-          />
-       )}
-       {currentScreen === Screen.MEMORY && (
-          <MemoryActivity 
-             items={MEMORY_ITEMS} 
-             difficulty={difficulty}
-             initialIndex={getInitialIndex(currentUser?.lastMemoryIndex)}
-             onComplete={(s) => handleActivityComplete('Memory', s)}
-             onLevelComplete={(idx) => handleLevelProgress('Memory', idx)}
-             onExit={() => setScreen(Screen.CHILD_DASHBOARD)}
-          />
-       )}
-       {currentScreen === Screen.DASHBOARD && currentUser && (
-          <ParentDashboard 
-             childName={currentUser.childName}
-             currentDifficulty={difficulty}
-             progressData={currentUser.progressHistory || []} 
-             assessmentScores={currentUser.assessmentScores}
-             onUpdateChildName={updateChildName}
-             onExit={() => setScreen(Screen.HOME)} 
-          />
-       )}
-       {currentScreen === Screen.LEARNING_JOURNEY && currentUser && (
-          <LearningJourney user={currentUser} onExit={() => setScreen(Screen.CHILD_DASHBOARD)} />
-       )}
-       {currentScreen === Screen.ADMIN_DASHBOARD && currentUser && (
-          <AdminDashboard 
-             userEmail={currentUser.email} 
-             onExit={handleSignOut}
-          />
-       )}
+       {currentScreen === Screen.TRACING && <TracingActivity items={TRACING_ITEMS} difficulty={difficulty} initialIndex={getInitialIndex(currentUser?.lastTracingIndex)} onComplete={(s) => handleActivityComplete('Tracing', s)} onLevelComplete={(idx) => handleLevelProgress('Tracing', idx)} onExit={() => setScreen(Screen.CHILD_DASHBOARD)} />}
+       {currentScreen === Screen.READING && <ReadingActivity items={READING_ITEMS} difficulty={difficulty} initialIndex={getInitialIndex(currentUser?.lastReadingIndex)} onComplete={(s) => handleActivityComplete('Reading', s)} onLevelComplete={(idx) => handleLevelProgress('Reading', idx)} onExit={() => setScreen(Screen.CHILD_DASHBOARD)} />}
+       {currentScreen === Screen.SPELLING && <SpellingActivity items={SPELLING_ITEMS} difficulty={difficulty} initialIndex={getInitialIndex(currentUser?.lastSpellingIndex)} onComplete={(s) => handleActivityComplete('Spelling', s)} onLevelComplete={(idx) => handleLevelProgress('Spelling', idx)} onExit={() => setScreen(Screen.CHILD_DASHBOARD)} />}
+       {currentScreen === Screen.MEMORY && <MemoryActivity items={MEMORY_ITEMS} difficulty={difficulty} initialIndex={getInitialIndex(currentUser?.lastMemoryIndex)} onComplete={(s) => handleActivityComplete('Memory', s)} onLevelComplete={(idx) => handleLevelProgress('Memory', idx)} onExit={() => setScreen(Screen.CHILD_DASHBOARD)} />}
+       {currentScreen === Screen.DASHBOARD && currentUser && <ParentDashboard childName={currentUser.childName} currentDifficulty={difficulty} progressData={currentUser.progressHistory || []} assessmentScores={currentUser.assessmentScores} onUpdateChildName={(n) => {}} onExit={() => setScreen(Screen.HOME)} />}
+       {currentScreen === Screen.LEARNING_JOURNEY && currentUser && <LearningJourney user={currentUser} onExit={() => setScreen(Screen.CHILD_DASHBOARD)} />}
+       {currentScreen === Screen.ADMIN_DASHBOARD && currentUser && <AdminDashboard userEmail={currentUser.email} onExit={handleSignOut} />}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FDFBF7',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  container: { flex: 1, backgroundColor: '#FDFBF7', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  landingContainer: { flex: 1, padding: 24, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FDFBF7' },
+  signOutButton: { position: 'absolute', top: 48, right: 24, flexDirection: 'row', alignItems: 'center' },
+  logoText: { fontSize: 48, fontWeight: 'bold', color: '#2D2D2D', marginLeft: 12 },
+  roleCard: { backgroundColor: '#FFFFFF', padding: 32, borderWidth: 2, borderColor: 'rgba(74, 144, 226, 0.2)', borderRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5, alignItems: 'center' },
+  roleIconBox: { padding: 24, borderRadius: 999, marginBottom: 24 },
+  roleTitle: { fontSize: 24, fontWeight: 'bold', color: '#1F2937' },
+  offlineBanner: { backgroundColor: '#FEF3C7', padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#F59E0B' },
+  bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  offlineText: { color: '#B45309', fontWeight: 'bold', fontSize: 12 },
+  retryButton: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.5)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  retryText: { fontSize: 12, fontWeight: 'bold', color: '#78350F' },
+
+  // --- COMPACT LANDSCAPE PLAYGROUND ---
+  landscapeWrapper: { flex: 1, backgroundColor: '#FDFBF7', paddingVertical: 8 },
+  landscapeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 32, marginBottom: 6 },
+  landscapeHeaderBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  landscapeHeaderBtnText: { color: '#6B7280', fontWeight: 'bold', fontSize: 14 },
+  landscapeTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  landscapeHeaderTitle: { fontSize: 20, fontWeight: '900', color: '#1F2937' },
+  landscapeBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#DBEAFE', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: '#BFDBFE' },
+  landscapeBadgeText: { marginLeft: 4, fontWeight: 'bold', color: '#1D4ED8', fontSize: 11 },
+  landscapeInfoBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 32, marginBottom: 8 },
+  landscapeWelcomeText: { fontSize: 14, color: '#4B5563' },
+  landscapeLevelIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF9C3', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: '#FDE68A' },
+  landscapeLevelText: { color: '#854D0E', fontWeight: 'bold', marginLeft: 3, fontSize: 11 },
+  horizontalScrollStyle: { flex: 1 },
+  horizontalScrollContainer: { paddingHorizontal: 32, paddingVertical: 6, alignItems: 'center' },
+  activityPosterSmall: { 
+    width: 180, 
+    height: 180, 
+    marginRight: 20, 
+    borderRadius: 20, 
+    overflow: 'hidden', 
+    backgroundColor: '#FFF', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 6, 
+    elevation: 4, 
+    borderWidth: 1.5, 
+    borderColor: '#FFF' 
   },
-  background: {
-    backgroundColor: '#FDFBF7',
+  posterImage: { width: '100%', height: '100%' },
+  posterOverlayMinimal: { 
+    flex: 1, 
+    padding: 12, 
+    justifyContent: 'space-between', 
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.01)' 
   },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  posterTop: { flexDirection: 'row', alignItems: 'center' },
+  posterIconBoxSmall: { 
+    width: 36, 
+    height: 36, 
+    borderRadius: 18, 
+    backgroundColor: 'rgba(255,255,255,0.95)', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    shadowColor: '#000', 
+    shadowOpacity: 0.05, 
+    shadowRadius: 2 
   },
-  dashboardScroll: {
-    padding: 24,
-    flexGrow: 1,
-    alignItems: 'center',
+  posterBottomTextCompact: { 
+    gap: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)', 
+    padding: 8,
+    borderRadius: 14,
+    marginHorizontal: -4,
+    marginBottom: -4
   },
-  headerRow: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 40,
-    marginTop: Platform.OS === 'android' ? 24 : 0,
+  posterTitleMicro: { 
+    color: '#FFF', 
+    fontSize: 18, 
+    fontWeight: '900', 
+    textShadowColor: 'rgba(0, 0, 0, 0.4)', 
+    textShadowOffset: { width: 1, height: 1 }, 
+    textShadowRadius: 3 
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  posterLevelRowSmall: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  posterLevelLabelMicro: { 
+    color: '#FFF', 
+    fontSize: 11, 
+    fontWeight: 'bold', 
+    textShadowColor: 'rgba(0, 0, 0, 0.4)', 
+    textShadowRadius: 2 
   },
-  headerTitle: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#2D2D2D',
-    marginLeft: 8,
-  },
-  welcomeText: {
-    fontSize: 24,
-    color: '#4B5563',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  levelIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 32,
-    backgroundColor: '#FEF9C3',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  levelIndicatorLabel: {
-    color: '#854D0E',
-    fontWeight: '600',
-  },
-  levelIndicatorBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  levelIndicatorText: {
-    color: '#854D0E',
-    fontWeight: 'bold',
-  },
-  activityCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 24,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  iconBox: {
-    padding: 16,
-    borderRadius: 16,
-    marginRight: 16,
-  },
-  activityTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  activityDesc: {
-    color: '#6B7280',
-  },
-  journeyButton: {
-    marginTop: 32,
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-  },
-  landingContainer: {
-    flex: 1,
-    padding: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FDFBF7',
-  },
-  signOutButton: {
-    position: 'absolute',
-    top: 48,
-    right: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logoText: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#2D2D2D',
-    marginLeft: 12,
-  },
-  roleCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 32,
-    borderWidth: 2,
-    borderColor: 'rgba(74, 144, 226, 0.2)',
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
-    alignItems: 'center',
-  },
-  roleIconBox: {
-    padding: 24,
-    borderRadius: 999,
-    marginBottom: 24,
-  },
-  roleTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  pendingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#FDFBF7',
-  },
-  pendingCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 32,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 400,
-  },
-  pendingTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  pendingText: {
-    fontSize: 18,
-    color: '#2563EB',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  pendingSubText: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 22
-  },
-  signOutLink: {
-    padding: 12,
-  },
-  signOutLinkText: {
-    color: '#EF4444',
-    fontWeight: 'bold',
-  },
-  cardContainer: {
-    width: '100%',
-    gap: 16,
-  },
-  offlineBanner: {
-    backgroundColor: '#FEF3C7',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F59E0B'
-  },
-  bannerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  offlineText: {
-    color: '#B45309',
-    fontWeight: 'bold',
-    fontSize: 12
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  retryText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#78350F',
-  }
+  landscapeSwipeHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 4 },
+  swipeHintText: { color: '#9CA3AF', fontSize: 10, fontWeight: '600' }
 });
 
 export default App;

@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, PanResponder, ScrollView, Alert, Activity
 import { Brain, Volume2, Trophy, Star, Mic, Square, Eraser, CheckCircle, AlertCircle, TrendingUp, Sparkles, Activity } from 'lucide-react-native';
 import { Difficulty, UserProfile, AssessmentScores } from '../types';
 import { db, doc, setDoc, updateDoc } from '../firebaseConfig';
-import { analyzeReadingAssessment } from '../services/gemini';
+import { analyzeReadingAssessment } from '../services/modelRequest';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { Svg, Path, Circle as SvgCircle } from 'react-native-svg';
@@ -243,7 +243,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
        const result = await analyzeReadingAssessment(uri, readingSpeedText, durationSec);
        
        if (!result.transcript) {
-          Alert.alert("Notice", "AI Service busy. Using standard baseline.");
+          Alert.alert("Notice", "You didn't say anything");
           handleScoreAndNext(0, 50); 
           return;
        }
@@ -271,8 +271,15 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
     }
     const durationSec = (Date.now() - startTimeRef.current) / 1000;
     const minutes = durationSec / 60;
-    const wpm = 1 / minutes;
-    const expectedWPM = 15;
+    const wpm = 1 / minutes; // 1 word / minutes
+    
+    // Scale expectation based on age (8-25 WPM)
+    let expectedWPM = 15;
+    if (effectiveAge <= 7) expectedWPM = 8;
+    else if (effectiveAge <= 9) expectedWPM = 12;
+    else if (effectiveAge <= 11) expectedWPM = 18;
+    else expectedWPM = 25;
+
     let score = (wpm / expectedWPM) * 100;
     score = Math.min(100, Math.max(0, Math.round(score)));
     handleScoreAndNext(3, score);
@@ -280,12 +287,31 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
 
   const handleTraceQualitySubmit = () => {
      const points = tracingPoints.length;
-     let score = 0;
-     if (points > 100) score = 95;      
-     else if (points > 60) score = 80;  
-     else if (points > 30) score = 50;  
-     else score = 20;                   
-     handleScoreAndNext(4, score); 
+     // Rubric Scoring:
+     // Letter Formation (30) + Legibility (30) + Spacing (20) + Organization (20) = 100
+     // We map "More tracing points" -> Better Formation/Legibility
+     
+     let formation = 0; // Max 30
+     let legibility = 0; // Max 30
+     const spacing = 20; // Max 20 (Assumed perfect for single isolated letter)
+     const organization = 20; // Max 20 (Assumed perfect for single isolated letter)
+
+     if (points > 80) { 
+         formation = 30; 
+         legibility = 30; 
+     } else if (points > 50) { 
+         formation = 20; 
+         legibility = 20; 
+     } else if (points > 20) { 
+         formation = 10; 
+         legibility = 10; 
+     } else { 
+         formation = 5; 
+         legibility = 5; 
+     }
+
+     const totalScore = formation + legibility + spacing + organization;
+     handleScoreAndNext(4, totalScore); 
   };
 
   const handleSelection = (correct: boolean, totalItems: number, idx: number) => {
@@ -563,7 +589,7 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                     <Sparkles size={64} {...({color: "#4A90E2"} as any)} />
                   </View>
                   <Text style={styles.loadingTitle}>Calculating Learning Path...</Text>
-                  <Text style={styles.loadingDesc}>AI is analyzing your performance and predicting the optimal difficulty level.</Text>
+                  <Text style={styles.loadingDesc}>Model is analyzing your performance and predicting the optimal difficulty level.</Text>
                   <ActivityIndicator size="large" color="#4A90E2" style={{marginTop: 32}} />
               </View>
           </View>
@@ -606,11 +632,11 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                  <View style={styles.trophyIcon}>
                     <Trophy size={48} {...({color: "#CA8A04"} as any)} />
                  </View>
-                 <Text style={styles.resultTitle}>Learning Path Analysis Complete!</Text>
+                 <Text style={styles.resultTitle}>Calculated Learning Path!</Text>
                  <Text style={styles.resultSubtitle}>Here is your personalized learning plan</Text>
                  
                  <View style={styles.resultLevelBox}>
-                    <Text style={styles.levelLabel}>AI Recommended Difficulty</Text>
+                    <Text style={styles.levelLabel}>Recommended Difficulty Level</Text>
                     <View style={styles.levelRow}>
                         <Text style={styles.levelText}>{calculatedProfile.assignedDifficulty}</Text>
                         <Star {...({fill: "#4A90E2"} as any)} {...({color: "#4A90E2"} as any)} size={32} />
@@ -694,6 +720,20 @@ export const AssessmentFlow: React.FC<AssessmentFlowProps> = ({ user, onComplete
                 <Text style={styles.taskDesc}>
                     {currentTaskIndex === 0 ? "Read the text aloud." : "Complete the task."}
                 </Text>
+                
+                {/* PREVIEW PASSAGE FOR READING TASK */}
+                {currentTaskIndex === 0 && (
+                    <View style={[styles.passageContainer, { marginBottom: 32 }]}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <Text style={[styles.instructionText, { marginBottom: 0, textAlign: 'center' }]}>Challenge Text Preview</Text>
+                            <TouchableOpacity onPress={() => playTTS(readingSpeedText)} style={{ backgroundColor: '#DBEAFE', padding: 6, borderRadius: 20 }}>
+                                <Volume2 size={18} {...({color: "#2563EB"} as any)} />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={[styles.passageText, { fontSize: 18, textAlign: 'center', marginTop: 0 }]}>{readingSpeedText}</Text>
+                    </View>
+                )}
+
                 {currentTaskIndex === 0 ? (
                     <TouchableOpacity onPress={handleReadingSpeedStart} style={[styles.primaryButton, {flexDirection: 'row', gap: 12}]}>
                         <Mic {...({color: "#FFF"} as any)} />

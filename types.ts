@@ -145,6 +145,14 @@ export interface PronunciationResult {
   score: number;
   isCorrect: boolean;
   feedback: string;
-  phoneticBreakdown?: string;
   transcript?: string;
+  phoneticBreakdown?: string;
 }
+
+export interface ReadingAssessmentResult {
+  wpm: number;
+  accuracy: number;
+  transcript: string;
+}
+
+export type AudioUri = string;

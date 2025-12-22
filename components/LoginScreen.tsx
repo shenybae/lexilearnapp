@@ -240,7 +240,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
                 {role === 'Admin' ? <ShieldCheck size={20} {...({color: "#4A90E2"} as any)} /> : <Users size={20} {...({color: "#9CA3AF"} as any)} />}
               </View>
               <Text style={[styles.inputText, role === 'Admin' && { fontWeight: 'bold', color: '#4A90E2' }]}>
-                {role === 'Guardian' ? 'Guardian / Student' : 'Administrator'}
+                {role === 'Guardian' ? 'Guardian' : 'Administrator'}
               </Text>
               <ChevronDown size={20} {...({color: "#9CA3AF"} as any)} />
             </TouchableOpacity>
@@ -255,7 +255,7 @@ export const LoginScreen: React.FC<LoginProps> = ({ onSignUpClick, onLoginSucces
                     <View style={{marginRight: 12}}>
                         <Users size={24} {...({color: "#4B5563"} as any)} />
                     </View>
-                    <Text style={styles.modalText}>Guardian / Student</Text>
+                    <Text style={styles.modalText}>Guardian</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => { setRole('Admin'); setRoleModalVisible(false); }} style={[styles.modalItem, {borderBottomWidth: 0}]}>
                     <View style={{marginRight: 12}}>

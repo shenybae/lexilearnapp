@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform, Alert, ScrollView } from 'react-native';
 import { ReadingItem, Difficulty } from '../types';
 import { Mic, Volume2, Square, ArrowRight, ChevronLeft, ChevronRight, MessageSquare, Star, ThumbsUp, AlertCircle } from 'lucide-react-native';
-import { checkPronunciation } from '../services/gemini';
+import { checkPronunciation } from '../services/modelRequest';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 
