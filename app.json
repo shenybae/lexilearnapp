@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "android": {
+      "permissions": ["RECORD_AUDIO", "INTERNET"],
       "package": "com.lexilearn.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
