@@ -2,7 +2,6 @@
   "name": "lexilearn",
   "private": true,
   "version": "0.0.0",
-  "type": "module",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -11,7 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
-    "@react-native-async-storage/async-storage": "^1.24.0",
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-voice/voice": "^3.2.4",
     "expo": "^54.0.30",
     "expo-av": "~16.0.8",
@@ -26,15 +25,21 @@
     "react": "^19.2.3",
     "react-native": "^0.83.1",
     "react-native-orientation-locker": "^1.7.0",
-    "react-native-svg": "15.12.1",
+    "react-native-reanimated": "^4.2.1",
+    "react-native-svg": "^15.15.1",
     "react-native-vosk": "^2.1.7"
   },
   "devDependencies": {
+    "@babel/preset-flow": "^7.27.1",
+    "@react-native-community/cli": "latest",
+    "@react-native/metro-config": "^0.83.1",
     "@types/node": "^22.14.0",
     "@types/react": "~19.1.10",
     "@types/react-native": "^0.72.8",
-    "@react-native-community/cli": "latest",
+    "expo-module-scripts": "^5.0.8",
+    "metro-react-native-babel-preset": "^0.77.0",
     "react-native-codegen": "^0.70.7",
+    "sharp": "^0.34.5",
     "typescript": "~5.8.2"
   }
 }

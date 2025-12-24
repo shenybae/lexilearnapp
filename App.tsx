@@ -22,10 +22,10 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Local Assets
-const ReadingImg = require('./assets/Reading.png');
-const WritingImg = require('./assets/Writing.png');
-const SpellingImg = require('./assets/Spelling.png');
-const MemoryImg = require('./assets/Memory Span.png');
+const readingImg = require('./assets/reading.png');
+const writingImg = require('./assets/writing.png');
+const spellingImg = require('./assets/spelling.png');
+const memoryImg = require('./assets/memorySpan.png');
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -296,7 +296,7 @@ const App: React.FC = () => {
       >
         {/* READING POSTER */}
         <TouchableOpacity onPress={() => setScreen(Screen.READING)} style={styles.activityPosterSmall}>
-          <ImageBackground source={ReadingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+          <ImageBackground source={readingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
             <View style={styles.posterOverlayMinimal}>
                 <View style={styles.posterTop}>
                     <View style={styles.posterIconBoxSmall}>
@@ -316,7 +316,7 @@ const App: React.FC = () => {
 
         {/* WRITING POSTER */}
         <TouchableOpacity onPress={() => setScreen(Screen.TRACING)} style={styles.activityPosterSmall}>
-          <ImageBackground source={WritingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+          <ImageBackground source={writingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
             <View style={styles.posterOverlayMinimal}>
                 <View style={styles.posterTop}>
                     <View style={styles.posterIconBoxSmall}>
@@ -336,7 +336,7 @@ const App: React.FC = () => {
 
         {/* SPELLING POSTER */}
         <TouchableOpacity onPress={() => setScreen(Screen.SPELLING)} style={styles.activityPosterSmall}>
-          <ImageBackground source={SpellingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+          <ImageBackground source={spellingImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
             <View style={styles.posterOverlayMinimal}>
                 <View style={styles.posterTop}>
                     <View style={styles.posterIconBoxSmall}>
@@ -356,7 +356,7 @@ const App: React.FC = () => {
 
         {/* MEMORY SPAN POSTER */}
         <TouchableOpacity onPress={() => setScreen(Screen.MEMORY)} style={styles.activityPosterSmall}>
-          <ImageBackground source={MemoryImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
+          <ImageBackground source={memoryImg} style={styles.posterImage} imageStyle={{ borderRadius: 20 }}>
             <View style={styles.posterOverlayMinimal}>
                 <View style={styles.posterTop}>
                     <View style={styles.posterIconBoxSmall}>
