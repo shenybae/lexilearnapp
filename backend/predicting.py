@@ -8,16 +8,17 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (classification_report, confusion_matrix, accuracy_score, 
                              f1_score, recall_score, precision_score)
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, RocCurveDisplay, PrecisionRecallDisplay
+import matplotlib
+matplotlib.use("Agg")  # Use non-GUI backend to avoid Tkinter crash
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
-
 # ========================================
 # 1. LOAD AND PREPARE DATA
 # ========================================
-
-def load_data(filepath='dyslexia_focus_areas_20000.csv'):
+def load_data(filepath='dyslexia_63_samples.csv'):
     """Load the dyslexia focus area dataset"""
     df = pd.read_csv(filepath)
     print("="*70)
@@ -30,43 +31,6 @@ def load_data(filepath='dyslexia_focus_areas_20000.csv'):
     print(f"\nClass Percentages:")
     print(df['difficulty_level'].value_counts(normalize=True) * 100)
     return df
-
-def add_noise_to_data(X, noise_level=0.06):
-    """Add random noise to prevent overfitting"""
-    noise = np.random.normal(0, noise_level, X.shape)
-    X_noisy = X + noise
-    return X_noisy
-
-def add_class_specific_noise(X, y, noise_level=None):
-    """Add different noise levels per class (numeric labels)"""
-    if noise_level is None:
-        noise_level = {0: 0.25, 1: 0.03, 2: 0.02, 3: 0.01}
-
-    X_noisy = X.astype(float).copy()  # <-- Convert to float here
-    for cls, level in noise_level.items():
-        mask = (y == cls)
-        noise = np.random.normal(0, level, X[mask].shape)
-        X_noisy[mask] += noise
-    return X_noisy
-
-
-
-def add_minimal_label_noise(y, random_state=42):
-    """MINIMAL label flipping - only flip 5% of Mild labels"""
-    np.random.seed(random_state)
-    y_noisy = y.copy()
-    
-    for i in range(len(y)):
-        if y[i] == 0:  # Mild class
-            # Only 5% chance to flip Mild labels (MINIMAL)
-            if np.random.rand() < 0.05:
-                # Almost always flip to Moderate (most realistic confusion)
-                if np.random.rand() < 0.90:
-                    y_noisy[i] = 1  # Mild → Moderate
-                else:
-                    y_noisy[i] = 2  # Mild → Profound (very rare)
-    
-    return y_noisy
 
 
 def prepare_data(df):
@@ -95,31 +59,8 @@ def prepare_data(df):
     
     return X, y_encoded, le, feature_columns
 
-def add_targeted_label_noise(y, random_state=42):
-    """AGGRESSIVELY flip Mild labels"""
-    np.random.seed(random_state)
-    y_noisy = y.copy()
-    
-    for i in range(len(y)):
-        if y[i] == 0:  # Mild class
-            # 30% chance to flip Mild labels (AGGRESSIVE)
-            if np.random.rand() < 0.30:
-                # Mostly flip to Moderate (realistic confusion)
-                if np.random.rand() < 0.70:
-                    y_noisy[i] = 1  # Mild → Moderate
-                elif np.random.rand() < 0.85:
-                    y_noisy[i] = 2  # Mild → Profound
-                else:
-                    y_noisy[i] = 3  # Mild → Severe
-        
-        elif y[i] == 1:  # Moderate
-            # Sometimes confuse Moderate with Mild
-            if np.random.rand() < 0.15:
-                y_noisy[i] = 0  # Moderate → Mild
-    
-    return y_noisy
 
-def split_and_scale_data(X, y, test_size=0.2, random_state=42, add_noise=True):
+def split_and_scale_data(X, y, test_size=0.2, random_state=42, add_noise=False):
     """Split data (80/20) and scale features - MINIMAL NOISE"""
     # Split data with stratification to maintain class distribution
     X_train, X_test, y_train, y_test = train_test_split(
@@ -132,36 +73,6 @@ def split_and_scale_data(X, y, test_size=0.2, random_state=42, add_noise=True):
     print(f"Training samples: {X_train.shape[0]} ({X_train.shape[0]/len(X)*100:.1f}%)")
     print(f"Test samples: {X_test.shape[0]} ({X_test.shape[0]/len(X)*100:.1f}%)")
     
-    # Add noise to training data only to prevent overfitting
-    if add_noise:
-        print("\n✓ Adding MINIMAL noise to training data")
-        
-        # Convert to float
-        X_train = X_train.astype(float)
-        X_test = X_test.astype(float)
-        
-        # VERY minimal noise for training
-        train_noise_levels = {
-            0: 0.02,  # Mild - VERY MINIMAL (was 0.04)
-            1: 0.01,  # Moderate - MINIMAL
-            2: 0.008, # Profound - MINIMAL
-            3: 0.006  # Severe - MINIMAL
-        }
-        
-        # EXTREMELY minimal noise for test
-        test_noise_levels = {
-            0: 0.01,  # Mild - BARE MINIMUM
-            1: 0.005, # Moderate
-            2: 0.003, # Profound
-            3: 0.002  # Severe
-        }
-        
-        X_train = add_class_specific_noise(X_train, y_train, noise_level=train_noise_levels)
-        X_test = add_class_specific_noise(X_test, y_test, noise_level=test_noise_levels)
-        
-        # MINIMAL label noise for Mild in training
-        y_train = add_minimal_label_noise(y_train)
-    
     # Scale features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -171,8 +82,6 @@ def split_and_scale_data(X, y, test_size=0.2, random_state=42, add_noise=True):
 # ========================================
 # 2. TRAIN 5 ALGORITHMS
 # ========================================
-
-
 def train_models(X_train, y_train):
     """Train models with OPTIMIZED parameters for 91-95% accuracy"""
     
@@ -259,46 +168,6 @@ def train_models(X_train, y_train):
     
     return trained_models
 
-def create_borderline_cases(X, y, n_cases=500):  # FURTHER REDUCED from 1000
-    """Create VERY FEW ambiguous cases between Mild and Moderate"""
-    if n_cases == 0:  # Option to skip entirely
-        return X, y
-    
-    X_new = []
-    y_new = []
-    
-    # Get Mild and Moderate indices
-    mild_idx = np.where(y == 0)[0]
-    moderate_idx = np.where(y == 1)[0]
-    
-    if len(mild_idx) > 0 and len(moderate_idx) > 0:
-        for _ in range(n_cases):
-            # Pick random samples from each class
-            mild_sample = X[np.random.choice(mild_idx)]
-            moderate_sample = X[np.random.choice(moderate_idx)]
-            
-            # Blend features (create borderline case)
-            blend_ratio = np.random.uniform(0.45, 0.55)  # Very narrow blend
-            borderline_sample = (1 - blend_ratio) * mild_sample + blend_ratio * moderate_sample
-            
-            # Add BARE MINIMUM noise
-            borderline_sample += np.random.normal(0, 0.005, borderline_sample.shape)  # Reduced from 0.01
-            
-            # Assign label (slightly biased toward the class with more similar features)
-            if np.random.rand() < 0.55:  # Slight bias
-                ambiguous_label = 0  # Mild
-            else:
-                ambiguous_label = 1  # Moderate
-            
-            X_new.append(borderline_sample)
-            y_new.append(ambiguous_label)
-    
-    if X_new:
-        return np.vstack([X, X_new]), np.concatenate([y, y_new])
-    return X, y
-# ========================================
-# 3. EVALUATE WITH MULTIPLE METRICS
-# ========================================
 
 def evaluate_models(models, X_test, y_test, label_encoder):
     """Evaluate all models with Accuracy, F1, Recall, Precision"""
@@ -576,25 +445,171 @@ def predict_with_focus_areas(model, scaler, label_encoder, df):
 # ========================================
 # 7. MAIN EXECUTION
 # ========================================
+# ========================================
+# 4. ADDITIONAL VISUALIZATIONS
+# ========================================
+
+def plot_dataset_distribution(df):
+    """Visualize dataset distribution by difficulty level and age."""
+    plt.figure(figsize=(12, 5))
+    
+    # Class distribution
+    plt.subplot(1, 2, 1)
+    sns.countplot(data=df, x='difficulty_level', palette='Set2', order=df['difficulty_level'].value_counts().index)
+    plt.title("Dataset Distribution by Difficulty Level", fontsize=14, fontweight='bold')
+    plt.ylabel("Number of Samples")
+    plt.xlabel("Difficulty Level")
+    
+    # Age distribution
+    plt.subplot(1, 2, 2)
+    sns.histplot(df['age'], bins=10, kde=True, color='skyblue')
+    plt.title("Age Distribution of Students", fontsize=14, fontweight='bold')
+    plt.xlabel("Age (years)")
+    plt.ylabel("Count")
+    
+    plt.tight_layout()
+    plt.savefig("dataset_distribution.png", dpi=300)
+    print("✓ Saved: dataset_distribution.png")
+    plt.show()
+
+
+def plot_feature_distributions(df, features):
+    """Plot histograms for each feature to see distributions and potential outliers."""
+    n_features = len(features)
+    n_cols = 3
+    n_rows = int(np.ceil(n_features / n_cols))
+    
+    plt.figure(figsize=(15, 5 * n_rows))
+    
+    for idx, feature in enumerate(features):
+        plt.subplot(n_rows, n_cols, idx + 1)
+        sns.histplot(df[feature], kde=True, bins=20, color='coral')
+        plt.title(f"Distribution of {feature}", fontsize=12, fontweight='bold')
+        plt.xlabel(feature)
+    
+    plt.tight_layout()
+    plt.savefig("feature_distributions.png", dpi=300)
+    print("✓ Saved: feature_distributions.png")
+    plt.show()
+
+
+def plot_model_confidence_curve(model, X_test, y_test, label_encoder):
+    """Plot predicted probability distribution for each class."""
+    if not hasattr(model, "predict_proba"):
+        print("⚠️ Confidence curves require models with predict_proba() method")
+        return
+    
+    y_proba = model.predict_proba(X_test)
+    classes = label_encoder.classes_
+    
+    plt.figure(figsize=(12, 6))
+    
+    for idx, class_name in enumerate(classes):
+        sns.kdeplot(y_proba[:, idx], label=f"{class_name} probability", fill=True)
+    
+    plt.title("Predicted Probability Distributions per Class", fontsize=14, fontweight='bold')
+    plt.xlabel("Predicted Probability")
+    plt.ylabel("Density")
+    plt.legend()
+    plt.savefig("model_confidence_curves.png", dpi=300)
+    print("✓ Saved: model_confidence_curves.png")
+    plt.show()
+
+
+def plot_roc_auc_multiclass(model, X_test, y_test, label_encoder):
+    """Plot ROC curves for multi-class classification."""
+    from sklearn.preprocessing import label_binarize
+    
+    if not hasattr(model, "predict_proba"):
+        print("⚠️ ROC-AUC requires models with predict_proba() method")
+        return
+    
+    classes = label_encoder.classes_
+    y_test_bin = label_binarize(y_test, classes=np.arange(len(classes)))
+    y_score = model.predict_proba(X_test)
+    
+    plt.figure(figsize=(10, 8))
+    
+    for i in range(len(classes)):
+        fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_score[:, i])
+        roc_auc = auc(fpr, tpr)
+        plt.plot(fpr, tpr, label=f"{classes[i]} (AUC = {roc_auc:.3f})")
+    
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.title("Multi-Class ROC Curves", fontsize=14, fontweight='bold')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.savefig("roc_auc_multiclass.png", dpi=300)
+    print("✓ Saved: roc_auc_multiclass.png")
+    plt.show()
+
+
+def plot_precision_recall_multiclass(model, X_test, y_test, label_encoder):
+    """Plot Precision-Recall curves for multi-class classification."""
+    from sklearn.preprocessing import label_binarize
+    
+    if not hasattr(model, "predict_proba"):
+        print("⚠️ Precision-Recall curves require models with predict_proba() method")
+        return
+    
+    classes = label_encoder.classes_
+    y_test_bin = label_binarize(y_test, classes=np.arange(len(classes)))
+    y_score = model.predict_proba(X_test)
+    
+    plt.figure(figsize=(10, 8))
+    
+    for i, class_name in enumerate(classes):
+        precision, recall, _ = precision_recall_curve(y_test_bin[:, i], y_score[:, i])
+        plt.plot(recall, precision, label=f"{class_name}")
+    
+    plt.title("Multi-Class Precision-Recall Curves", fontsize=14, fontweight='bold')
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.legend(loc="lower left")
+    plt.grid(True)
+    plt.savefig("precision_recall_multiclass.png", dpi=300)
+    print("✓ Saved: precision_recall_multiclass.png")
+    plt.show()
+
+
+def plot_feature_importance(model, feature_names):
+    """Plot feature importance for tree-based models (Random Forest or Gradient Boosting)."""
+    if not hasattr(model, "feature_importances_"):
+        print("⚠️ Feature importance only available for tree-based models")
+        return
+    
+    importance = model.feature_importances_
+    indices = np.argsort(importance)[::-1]  # Sort descending
+    
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x=importance[indices], y=[feature_names[i] for i in indices], palette='viridis')
+    plt.title("Feature Importance", fontsize=14, fontweight='bold')
+    plt.xlabel("Importance Score")
+    plt.ylabel("Feature")
+    plt.tight_layout()
+    plt.savefig("feature_importance.png", dpi=300)
+    print("✓ Saved: feature_importance.png")
+    plt.show()
+
+
+# ========================================
+# MAIN EXECUTION
+# ========================================
 
 def main():
-    """Main training pipeline - UPDATED"""
     print("\n" + "="*70)
     print("DYSLEXIA FOCUS AREA ML TRAINER")
     print("Training 5 Algorithms with Noise Injection")
-    print("Target: 89-95% Overall, 85-90% Mild Accuracy")
     print("="*70)
     
     # Load data
-    df = load_data('dyslexia_focus_areas_20000.csv')
+    df = load_data('dyslexia_63_samples.csv')
     
     # Prepare data
     X, y, label_encoder, feature_names = prepare_data(df)
     
-    # ADD BORDERLINE CASES
-    print("\n⚠️  Creating borderline Mild-Moderate cases...")
-    X, y = create_borderline_cases(X, y, n_cases=2000)
-    print(f"After adding borderline cases: {X.shape[0]} samples")
     
     # Split and scale (80/20 with noise)
     X_train, X_test, y_train, y_test, scaler = split_and_scale_data(X, y, add_noise=True)
@@ -605,10 +620,22 @@ def main():
     # Evaluate models
     results = evaluate_models(trained_models, X_test, y_test, label_encoder)
     
-    # Visualizations
+    # Standard visualizations
     plot_metrics_comparison(results)
     plot_confusion_matrices(results, label_encoder)
     plot_class_performance(results, label_encoder)
+    
+    # Additional visualizations
+    plot_dataset_distribution(df)
+    plot_feature_distributions(df, feature_names)
+    
+    best_model_name = max(results, key=lambda x: results[x]['f1_score'])
+    best_model = trained_models[best_model_name]
+    
+    plot_model_confidence_curve(best_model, X_test, y_test, label_encoder)
+    plot_roc_auc_multiclass(best_model, X_test, y_test, label_encoder)
+    plot_precision_recall_multiclass(best_model, X_test, y_test, label_encoder)
+    plot_feature_importance(best_model, feature_names)
     
     # Save best model
     best_model_name, best_model = save_best_model(trained_models, results, scaler, label_encoder)
@@ -623,6 +650,12 @@ def main():
     print("  • metrics_comparison.png")
     print("  • confusion_matrices_all.png")
     print("  • per_class_performance.png")
+    print("  • dataset_distribution.png")
+    print("  • feature_distributions.png")
+    print("  • model_confidence_curves.png")
+    print("  • roc_auc_multiclass.png")
+    print("  • precision_recall_multiclass.png")
+    print("  • feature_importance.png")
     print("  • best_dyslexia_focus_model.pkl")
     print("  • best_dyslexia_focus_model_scaler.pkl")
     print("  • best_dyslexia_focus_model_labels.pkl")
