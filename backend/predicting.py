@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
+
 # ========================================
 # 1. LOAD AND PREPARE DATA
 # ========================================
@@ -35,7 +36,6 @@ def load_data(filepath='dyslexia_63_samples.csv'):
 
 def prepare_data(df):
     """Prepare features and target for training"""
-    # Features: 9 assessment scores + age
     feature_columns = [
         'age',
         'reading_speed', 'reading_accuracy', 'reading_comprehension',
@@ -45,8 +45,7 @@ def prepare_data(df):
     
     X = df[feature_columns].values
     y = df['difficulty_level'].values
-    
-    # Encode labels
+
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
     
@@ -60,9 +59,7 @@ def prepare_data(df):
     return X, y_encoded, le, feature_columns
 
 
-def split_and_scale_data(X, y, test_size=0.2, random_state=42, add_noise=False):
-    """Split data (80/20) and scale features - MINIMAL NOISE"""
-    # Split data with stratification to maintain class distribution
+def split_and_scale_data(X, y, test_size=0.2, random_state=42):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
@@ -73,69 +70,67 @@ def split_and_scale_data(X, y, test_size=0.2, random_state=42, add_noise=False):
     print(f"Training samples: {X_train.shape[0]} ({X_train.shape[0]/len(X)*100:.1f}%)")
     print(f"Test samples: {X_test.shape[0]} ({X_test.shape[0]/len(X)*100:.1f}%)")
     
-    # Scale features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
     return X_train_scaled, X_test_scaled, y_train, y_test, scaler
+
 # ========================================
-# 2. TRAIN 5 ALGORITHMS
+# 2. TRAIN 5 ALGORITHMS WITH 5-FOLD CROSS-VALIDATION
 # ========================================
 def train_models(X_train, y_train):
-    """Train models with OPTIMIZED parameters for 91-95% accuracy"""
     
     models = {
         'Random Forest': RandomForestClassifier(
-            n_estimators=150,  # Increased for better accuracy
-            max_depth=10,      # Increased depth
+            n_estimators=150,
+            max_depth=10,
             min_samples_split=5,
             min_samples_leaf=2,
             max_features='sqrt',
             random_state=42,
-            class_weight='balanced_subsample',  # Better for imbalanced data
+            class_weight='balanced_subsample',
             n_jobs=-1
         ),
         'SVM': SVC(
             kernel='rbf',
-            C=1.5,            # Optimized for better accuracy
+            C=1.5,
             gamma='scale',
             probability=True,
             random_state=42,
             class_weight='balanced'
         ),
         'Logistic Regression': LogisticRegression(
-            max_iter=2000,    # More iterations
-            C=1.2,            # Optimized
+            max_iter=2000,
+            C=1.2,
             solver='lbfgs',
             multi_class='multinomial',
             random_state=42,
             class_weight='balanced'
         ),
         'Gradient Boosting': GradientBoostingClassifier(
-            n_estimators=150,  # Increased
-            learning_rate=0.08, # Optimized
-            max_depth=5,       # Increased
+            n_estimators=150,
+            learning_rate=0.08,
+            max_depth=5,
             min_samples_split=8,
             min_samples_leaf=3,
             subsample=0.85,
             random_state=42
         ),
         'K-Nearest Neighbors': KNeighborsClassifier(
-            n_neighbors=7,    # Optimized for better accuracy
+            n_neighbors=7,
             weights='distance',
-            metric='minkowski',  # More flexible metric
-            p=2  # Euclidean distance
+            metric='minkowski',
+            p=2
         )
     }
     
     trained_models = {}
     
     print("\n" + "="*70)
-    print("TRAINING 5 ALGORITHMS WITH CROSS-VALIDATION")
+    print("TRAINING 5 ALGORITHMS WITH 5-FOLD CROSS-VALIDATION")
     print("="*70)
     
-    # Stratified K-Fold for better evaluation with imbalanced data
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     
     for name, model in models.items():
@@ -146,14 +141,13 @@ def train_models(X_train, y_train):
         # Train model
         model.fit(X_train, y_train)
         
-        # Cross-validation
+        # 5-Fold CV
         cv_scores = cross_val_score(model, X_train, y_train, cv=skf, scoring='accuracy')
         cv_f1 = cross_val_score(model, X_train, y_train, cv=skf, scoring='f1_weighted')
         
-        print(f"Cross-Validation Accuracy: {cv_scores.mean():.4f} (+/- {cv_scores.std()*2:.4f})")
-        print(f"Cross-Validation F1-Score: {cv_f1.mean():.4f} (+/- {cv_f1.std()*2:.4f})")
+        print(f"5-Fold CV Accuracy: {cv_scores.mean():.4f} (+/- {cv_scores.std()*2:.4f})")
+        print(f"5-Fold CV F1-Score: {cv_f1.mean():.4f} (+/- {cv_f1.std()*2:.4f})")
         
-        # Check for overfitting
         train_score = model.score(X_train, y_train)
         print(f"Training Accuracy: {train_score:.4f}")
         
@@ -167,7 +161,6 @@ def train_models(X_train, y_train):
         trained_models[name] = model
     
     return trained_models
-
 
 def evaluate_models(models, X_test, y_test, label_encoder):
     """Evaluate all models with Accuracy, F1, Recall, Precision"""
@@ -601,7 +594,6 @@ def plot_feature_importance(model, feature_names):
 def main():
     print("\n" + "="*70)
     print("DYSLEXIA FOCUS AREA ML TRAINER")
-    print("Training 5 Algorithms with Noise Injection")
     print("="*70)
     
     # Load data
@@ -611,8 +603,8 @@ def main():
     X, y, label_encoder, feature_names = prepare_data(df)
     
     
-    # Split and scale (80/20 with noise)
-    X_train, X_test, y_train, y_test, scaler = split_and_scale_data(X, y, add_noise=True)
+    # Split and scale (80/20)
+    X_train, X_test, y_train, y_test, scaler = split_and_scale_data(X, y)
     
     # Train 5 models
     trained_models = train_models(X_train, y_train)
